@@ -1,0 +1,44 @@
+---
+# NetworkPolicy: allow-dns
+# ⚠️ THIẾT YẾU: Phải apply ngay sau default-deny-all
+#
+# Tại sao cần DNS?
+# Kubernetes services dùng DNS để resolve service names thành IP:
+#   backend-svc → 10.96.45.123
+#   backend-svc.three-tier-app.svc.cluster.local → 10.96.45.123
+#
+# kube-dns/CoreDNS chạy trong namespace kube-system
+# Pods cần egress đến kube-dns để resolve names
+#
+# DNS dùng:
+# - UDP port 53 (hầu hết queries)
+# - TCP port 53 (responses > 512 bytes, DNSSEC)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: three-tier-app
+  annotations:
+    description: "STEP 2: Allow DNS egress to kube-dns — Essential for service discovery"
+    apply-order: "2"
+spec:
+  # Áp dụng cho TẤT CẢ pods trong namespace
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # Allow egress đến kube-dns (namespace kube-system)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              # Label mặc định trên namespace kube-system
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              # Label của CoreDNS/kube-dns pods
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

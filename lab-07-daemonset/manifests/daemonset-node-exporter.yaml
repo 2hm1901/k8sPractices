@@ -1,0 +1,173 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: lab07
+  labels:
+    app: node-exporter
+    component: monitoring
+    # Label chuẩn để Prometheus ServiceMonitor tìm thấy
+    release: prometheus
+spec:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+
+  selector:
+    matchLabels:
+      app: node-exporter
+      component: monitoring
+
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+        component: monitoring
+      annotations:
+        # Prometheus scraping annotations
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Service account cho node-exporter
+      serviceAccountName: default
+
+      # Toleration để chạy trên tất cả nodes (kể cả master)
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
+
+      # Node exporter cần chạy với host network để collect metrics đúng
+      hostNetwork: true
+      hostPID: true
+      hostIPC: false
+
+      # NodeSelector ví dụ: chỉ chạy trên nodes có label monitoring=true
+      # Bỏ comment để bật:
+      # nodeSelector:
+      #   monitoring: "true"
+
+      containers:
+      - name: node-exporter
+        image: prom/node-exporter:v1.6.1
+        args:
+        # Không collect những metrics không cần thiết
+        - --no-collector.wifi
+        - --no-collector.hwmon
+        # Path prefix cho host filesystem mounts
+        - --path.rootfs=/host
+        # Các collector được bật
+        - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/pods/.+)($|/)
+        - --collector.netclass.ignored-devices=^(veth.*)$
+
+        ports:
+        - name: metrics
+          containerPort: 9100
+          protocol: TCP
+          # Với hostNetwork: true, port này sẽ listen trực tiếp trên host
+          hostPort: 9100
+
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "50Mi"
+          limits:
+            cpu: "250m"
+            memory: "180Mi"
+
+        # Liveness probe
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 9100
+          initialDelaySeconds: 5
+          periodSeconds: 10
+
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 9100
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+        # Volume mounts để đọc host system information
+        volumeMounts:
+        - name: rootfs
+          mountPath: /host
+          readOnly: true
+          mountPropagation: HostToContainer
+
+        - name: sys
+          mountPath: /host/sys
+          readOnly: true
+          mountPropagation: HostToContainer
+
+        - name: proc
+          mountPath: /host/proc
+          readOnly: true
+          mountPropagation: HostToContainer
+
+        # Security context — cần readonly access
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            add:
+            - SYS_TIME    # Cần để đọc time metrics
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65534  # nobody user
+
+      # Đặt pod security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+
+      terminationGracePeriodSeconds: 30
+
+      volumes:
+      # Mount toàn bộ root filesystem của host (read-only)
+      - name: rootfs
+        hostPath:
+          path: /
+          type: Directory
+
+      - name: sys
+        hostPath:
+          path: /sys
+          type: Directory
+
+      - name: proc
+        hostPath:
+          path: /proc
+          type: Directory
+
+---
+# Service để expose Node Exporter metrics tới Prometheus
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-exporter
+  namespace: lab07
+  labels:
+    app: node-exporter
+    component: monitoring
+  annotations:
+    prometheus.io/scrape: "true"
+spec:
+  type: ClusterIP
+  # ClusterIP: None không phù hợp với port-based services
+  # Dùng headless service nếu muốn scrape từng pod trực tiếp
+  ports:
+  - name: metrics
+    port: 9100
+    targetPort: 9100
+    protocol: TCP
+  selector:
+    app: node-exporter
+    component: monitoring

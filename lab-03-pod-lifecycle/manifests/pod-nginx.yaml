@@ -1,0 +1,164 @@
+# Pod Manifest: nginx-pod
+# Mục đích: Demo Pod YAML đầy đủ với best practices
+# Bao gồm: resource limits, probes, labels, annotations
+#
+# Usage:
+#   kubectl apply -f pod-nginx.yaml -n dev
+#   kubectl get pods nginx-pod -n dev
+#   kubectl port-forward pod/nginx-pod 8080:80 -n dev
+
+# ─── API Version & Kind ──────────────────────────────────────────────────────
+apiVersion: v1          # Core API group - pods là core resource
+kind: Pod               # Resource type
+
+# ─── Metadata ───────────────────────────────────────────────────────────────
+metadata:
+  name: nginx-pod       # Tên pod: phải unique trong namespace, lowercase, dấu gạch ngang
+  namespace: dev        # Namespace (hoặc chỉ định khi apply: -n dev)
+
+  # Labels: key-value pairs dùng để SELECT, FILTER, GROUP resources
+  # Convention phổ biến theo Kubernetes recommended labels
+  labels:
+    app: nginx                          # Tên application
+    app.kubernetes.io/name: nginx       # Standardized label
+    app.kubernetes.io/version: "1.25"   # App version
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: web-stack
+    environment: dev
+    tier: web
+
+  # Annotations: metadata bổ sung, KHÔNG dùng để select
+  # Thường dùng cho: documentation, tool configurations, CI/CD info
+  annotations:
+    description: "Nginx web server for serving static content"
+    maintainer: "backend-team@company.com"
+    git-repo: "https://github.com/company/web-app"
+    deployment-date: "2024-01-01"
+
+# ─── Spec ────────────────────────────────────────────────────────────────────
+spec:
+  # restartPolicy: Always | OnFailure | Never
+  # Always: Luôn restart khi container thoát (phù hợp cho web server, services)
+  restartPolicy: Always
+
+  # terminationGracePeriodSeconds: thời gian chờ sau khi gửi SIGTERM trước khi SIGKILL
+  # Default: 30 seconds. Tăng nếu app cần thời gian shutdown dài hơn
+  terminationGracePeriodSeconds: 30
+
+  # ─── Containers ─────────────────────────────────────────────────────────
+  containers:
+  - name: nginx                   # Tên container - unique trong pod
+    image: nginx:1.25-alpine      # LUÔN PIN VERSION - tránh dùng :latest
+
+    # imagePullPolicy:
+    # - Always: Luôn pull image (dù đã có local) - dùng khi debug
+    # - IfNotPresent: Pull nếu chưa có local (default với tag cụ thể)
+    # - Never: Không bao giờ pull - phải có local
+    imagePullPolicy: IfNotPresent
+
+    # ─── Ports ────────────────────────────────────────────────────────────
+    # containerPort chỉ có tính chất DOCUMENTATION - không ảnh hưởng networking
+    # Container vẫn lắng nghe mọi port kể cả không khai báo ở đây
+    ports:
+    - name: http                  # Đặt tên để tham chiếu từ Service, Probe
+      containerPort: 80
+      protocol: TCP               # TCP (default) hoặc UDP
+
+    # ─── Environment Variables ─────────────────────────────────────────────
+    env:
+    - name: NGINX_HOST            # Biến môi trường cho nginx config
+      value: "localhost"
+    - name: NGINX_PORT
+      value: "80"
+    - name: ENVIRONMENT
+      value: "development"
+    # Có thể lấy value từ Pod metadata (Downward API)
+    - name: POD_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.name
+    - name: POD_NAMESPACE
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.namespace
+
+    # ─── Resource Management ───────────────────────────────────────────────
+    # QUAN TRỌNG: Luôn set cả requests và limits!
+    resources:
+      requests:
+        # requests: Kubernetes scheduler dùng để quyết định node nào có đủ tài nguyên
+        # Container được GUARANTEE nhận ít nhất lượng này
+        cpu: "100m"       # 100 millicores = 0.1 CPU core
+        memory: "128Mi"   # 128 Mebibytes
+      limits:
+        # limits: Container KHÔNG THỂ dùng vượt quá giới hạn này
+        # Nếu vượt memory limit -> OOMKilled
+        # Nếu vượt CPU limit -> CPU throttling (không kill)
+        cpu: "200m"       # 200 millicores = 0.2 CPU core
+        memory: "256Mi"
+
+    # ─── Liveness Probe ───────────────────────────────────────────────────
+    # Kiểm tra container còn "sống" (chưa bị deadlock) không
+    # Nếu fail -> container bị RESTART
+    livenessProbe:
+      httpGet:
+        path: /           # HTTP GET request tới path này
+        port: http        # Dùng named port (tham chiếu từ ports section)
+        # scheme: HTTP    # HTTP (default) hoặc HTTPS
+      initialDelaySeconds: 10   # Chờ 10s sau khi container start mới probe lần đầu
+      periodSeconds: 30          # Probe mỗi 30 giây
+      timeoutSeconds: 5          # Timeout sau 5s nếu không có response
+      failureThreshold: 3        # Fail 3 lần liên tiếp -> restart container
+      successThreshold: 1        # Cần 1 lần success để coi là healthy
+
+    # ─── Readiness Probe ──────────────────────────────────────────────────
+    # Kiểm tra container sẵn sàng nhận traffic chưa
+    # Nếu fail -> container bị XÓA khỏi Service endpoints (không nhận traffic)
+    # Container KHÔNG bị restart khi readiness probe fail
+    readinessProbe:
+      httpGet:
+        path: /
+        port: http
+      initialDelaySeconds: 5    # Ít hơn liveness để route traffic sớm hơn
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+      successThreshold: 1
+
+    # ─── Volume Mounts ────────────────────────────────────────────────────
+    # Mount volumes vào container tại path cụ thể
+    volumeMounts:
+    - name: nginx-config          # Tên phải match với volumes section bên dưới
+      mountPath: /etc/nginx/conf.d/
+      readOnly: true              # Mount read-only để tránh container modify config
+    - name: nginx-logs
+      mountPath: /var/log/nginx/
+
+  # ─── Volumes ─────────────────────────────────────────────────────────────
+  # Volumes được define ở cấp Pod, containers dùng volumeMounts để mount
+  volumes:
+  - name: nginx-config
+    # configMap: dữ liệu từ ConfigMap
+    configMap:
+      name: nginx-config          # Tên ConfigMap (phải tồn tại trong namespace)
+      optional: true              # Nếu ConfigMap không tồn tại, pod vẫn start (không lỗi)
+  - name: nginx-logs
+    # emptyDir: tạo thư mục trống trên node, tồn tại trong lifecycle của pod
+    # Mất khi pod bị xóa. Dùng để share data giữa containers trong pod
+    emptyDir: {}
+
+  # ─── Node Selection ───────────────────────────────────────────────────────
+  # nodeSelector: Chỉ schedule pod lên nodes có labels này
+  # nodeSelector:
+  #   kubernetes.io/os: linux
+  #   node-type: worker
+
+  # ─── Affinity (Advanced scheduling) ──────────────────────────────────────
+  # affinity:
+  #   nodeAffinity:      # Prefer/require specific nodes
+  #   podAffinity:       # Schedule near other pods
+  #   podAntiAffinity:   # Schedule away from other pods
+
+  # ─── DNS Config ───────────────────────────────────────────────────────────
+  # dnsPolicy: ClusterFirst (default) | None | Default | ClusterFirstWithHostNet
+  dnsPolicy: ClusterFirst

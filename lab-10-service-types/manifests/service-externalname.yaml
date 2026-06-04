@@ -1,0 +1,40 @@
+# manifests/service-externalname.yaml
+# ExternalName Service - DNS CNAME alias tới external hostname
+# Không có ClusterIP, không có iptables rules
+# Chỉ là DNS trick: query service name → nhận CNAME → resolve external hostname
+#
+# Use case:
+# - External API endpoints
+# - Database instances outside cluster
+# - Gradual migration (external → internal)
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-externalname
+  labels:
+    service-type: externalname
+  annotations:
+    service.description: "DNS alias to external httpbin.org API"
+spec:
+  type: ExternalName
+
+  # Hostname của external service
+  # Sẽ được return làm CNAME khi query service DNS name
+  externalName: httpbin.org
+
+  # KHÔNG có selector
+  # KHÔNG có ports (không bắt buộc, nhưng có thể thêm để documentation)
+  # ports:
+  #   - port: 443
+  #     name: https
+
+---
+# Ví dụ khác: ExternalName tới database RDS trên AWS
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: production-db
+# spec:
+#   type: ExternalName
+#   externalName: mydb.cluster-xxxxx.us-east-1.rds.amazonaws.com

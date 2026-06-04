@@ -1,0 +1,38 @@
+---
+# ClusterRoleBinding: node-reader-binding
+# Gán ClusterRole "node-reader" cho ServiceAccount "app-service-account"
+# → ServiceAccount này có thể đọc nodes từ BẤT KỲ namespace nào
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: node-reader-binding
+  labels:
+    env: lab
+  annotations:
+    description: "Grants node-reader ClusterRole to app-service-account cluster-wide"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: node-reader
+subjects:
+  - kind: ServiceAccount
+    name: app-service-account
+    namespace: rbac-lab   # ClusterRoleBinding vẫn cần namespace cho ServiceAccount
+
+---
+# Lưu ý: Bạn CÓ THỂ dùng RoleBinding để bind ClusterRole vào một namespace cụ thể
+# Đây là pattern hữu ích để tái sử dụng ClusterRole nhưng giới hạn scope
+#
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: RoleBinding         ← RoleBinding (không phải ClusterRoleBinding)
+# metadata:
+#   name: view-in-production
+#   namespace: production   ← chỉ áp dụng trong namespace này
+# roleRef:
+#   kind: ClusterRole       ← tham chiếu đến ClusterRole
+#   name: view
+#   apiGroup: rbac.authorization.k8s.io
+# subjects:
+#   - kind: User
+#     name: alice
+#     apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: nginx-custom-rs
+  namespace: lab05
+  labels:
+    team: platform
+    project: lab05-demo
+spec:
+  replicas: 2
+
+  # Dùng matchExpressions thay vì matchLabels để có selector phức tạp hơn
+  selector:
+    matchExpressions:
+      # Operator: In — app phải là một trong các giá trị sau
+      - key: app
+        operator: In
+        values:
+          - nginx-custom
+          - nginx-alt
+
+      # Operator: NotIn — loại bỏ pods có env=test
+      - key: env
+        operator: NotIn
+        values:
+          - test
+          - staging
+
+      # Operator: Exists — pod phải có label "tier" (bất kể giá trị)
+      - key: tier
+        operator: Exists
+
+  template:
+    metadata:
+      labels:
+        # Labels phải thỏa mãn TẤT CẢ các điều kiện của matchExpressions
+        app: nginx-custom   # In [nginx-custom, nginx-alt] ✅
+        env: prod           # NotIn [test, staging] ✅
+        tier: frontend      # Exists ✅
+        version: "2.0"
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.22-alpine
+        ports:
+        - containerPort: 80
+
+        # Custom nginx configuration via environment variable
+        env:
+        - name: NGINX_HOST
+          value: "lab05.example.com"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "100m"
+            memory: "128Mi"
+
+        # Volume mount cho custom index page
+        volumeMounts:
+        - name: html
+          mountPath: /usr/share/nginx/html
+
+      # Init container để tạo custom index.html
+      initContainers:
+      - name: init-html
+        image: busybox:1.35
+        command:
+        - sh
+        - -c
+        - |
+          cat > /html/index.html <<EOF
+          <html>
+            <body>
+              <h1>Hello from ReplicaSet!</h1>
+              <p>Pod: $POD_NAME in namespace $POD_NAMESPACE</p>
+            </body>
+          </html>
+          EOF
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        volumeMounts:
+        - name: html
+          mountPath: /html
+
+      volumes:
+      - name: html
+        emptyDir: {}
+
+      terminationGracePeriodSeconds: 15

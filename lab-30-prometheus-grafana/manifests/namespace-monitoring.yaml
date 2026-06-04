@@ -1,0 +1,13 @@
+# namespace-monitoring.yaml
+# Dedicated namespace for monitoring stack
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    name: monitoring
+    purpose: observability
+    stack: prometheus-grafana
+  annotations:
+    description: "kube-prometheus-stack - Prometheus, Grafana, AlertManager"

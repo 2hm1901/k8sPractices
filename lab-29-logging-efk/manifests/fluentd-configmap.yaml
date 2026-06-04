@@ -1,0 +1,180 @@
+# fluentd-configmap.yaml
+# This is the heart of Fluentd configuration
+# Defines: where to collect logs, how to parse them, and where to send them
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluentd-config
+  namespace: logging
+  labels:
+    app: fluentd
+    component: logging
+data:
+  # Main Fluentd configuration file
+  fluent.conf: |
+    # =====================================================
+    # INPUT SECTION: Where to collect logs from
+    # =====================================================
+
+    # Collect all container logs from /var/log/containers/
+    # These are symlinks to /var/log/pods/<pod>/<container>/<N>.log
+    <source>
+      @type tail
+      @id in_tail_container_logs
+      path /var/log/containers/*.log
+      pos_file /var/log/fluentd-containers.log.pos
+      tag kubernetes.*
+      read_from_head true
+      <parse>
+        @type multi_format
+        # Try CRI format first (containerd, CRI-O)
+        <pattern>
+          format regexp
+          expression /^(?<time>.+) (?<stream>stdout|stderr) [^ ]* (?<log>.*)$/
+          time_format '%Y-%m-%dT%H:%M:%S.%NZ'
+        </pattern>
+        # Fallback to Docker JSON format
+        <pattern>
+          format json
+          time_key time
+          time_format '%Y-%m-%dT%H:%M:%S.%NZ'
+        </pattern>
+      </parse>
+    </source>
+
+    # Collect Kubernetes node system logs from journald (if available)
+    # <source>
+    #   @type systemd
+    #   @id in_systemd_kubelet
+    #   matches [{ "_SYSTEMD_UNIT": "kubelet.service" }]
+    #   <storage>
+    #     @type local
+    #     persistent true
+    #     path /var/log/fluentd-journald-kubelet-cursor.json
+    #   </storage>
+    #   <entry>
+    #     fields_strip_underscores true
+    #     field_map {"MESSAGE": "log", "_PID": "pid", "_CMDLINE": "process"}
+    #   </entry>
+    #   tag journal.kubelet
+    # </source>
+
+    # =====================================================
+    # FILTER SECTION: Transform and enrich log records
+    # =====================================================
+
+    # Add Kubernetes metadata (namespace, pod name, labels, etc.)
+    <filter kubernetes.**>
+      @type kubernetes_metadata
+      @id filter_kube_metadata
+      kubernetes_url "https://#{ENV['KUBERNETES_SERVICE_HOST']}:#{ENV['KUBERNETES_SERVICE_PORT']}/api"
+      cache_size 1000
+      watch false
+      de_dot false
+      skip_labels false
+      skip_container_metadata false
+      skip_master_url false
+      skip_namespace_metadata false
+    </filter>
+
+    # Parse JSON logs from containers that output structured JSON
+    <filter kubernetes.**>
+      @type parser
+      key_name log
+      reserve_data true
+      remove_key_name_field true
+      emit_invalid_record_to_error false
+      <parse>
+        @type multi_format
+        <pattern>
+          format json
+        </pattern>
+        <pattern>
+          format none
+        </pattern>
+      </parse>
+    </filter>
+
+    # Handle multi-line logs (Java stack traces, Python tracebacks)
+    # Merge lines that don't start with a timestamp into the previous log entry
+    <filter kubernetes.**>
+      @type concat
+      @id filter_concat
+      key log
+      use_first_timestamp true
+      multiline_start_regexp /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/
+      flush_interval 5s
+      timeout_label @NORMAL
+    </filter>
+
+    # Exclude logs from the logging namespace itself (avoid log loops!)
+    <filter kubernetes.**>
+      @type grep
+      <exclude>
+        key $.kubernetes.namespace_name
+        pattern /^(logging|kube-system)$/
+      </exclude>
+    </filter>
+
+    # Add processed timestamp and cluster info
+    <filter kubernetes.**>
+      @type record_transformer
+      <record>
+        # Add cluster name for multi-cluster setups
+        cluster_name "k8s-lab"
+        # Normalize the log field name
+        message ${record["log"]}
+        # Add fluentd hostname
+        fluentd_host "#{Socket.gethostname}"
+      </record>
+      remove_keys log
+    </filter>
+
+    # =====================================================
+    # OUTPUT SECTION: Where to send processed logs
+    # =====================================================
+
+    # Route all kubernetes logs to Elasticsearch
+    <match kubernetes.**>
+      @type elasticsearch
+      @id out_elasticsearch
+      @log_level info
+
+      # Elasticsearch connection
+      host elasticsearch.logging.svc.cluster.local
+      port 9200
+      scheme http
+
+      # Index naming: logstash-YYYY.MM.DD (Kibana's default pattern)
+      logstash_format true
+      logstash_prefix logstash
+      logstash_dateformat %Y.%m.%d
+
+      # Buffer configuration for reliability
+      <buffer>
+        @type file
+        path /var/log/fluentd-buffers/kubernetes.system.buffer
+        flush_mode interval
+        retry_type exponential_backoff
+        flush_thread_count 2
+        flush_interval 5s
+        retry_forever false
+        retry_max_interval 30
+        chunk_limit_size 2M
+        total_limit_size 500M
+        overflow_action block
+      </buffer>
+
+      # Reconnect on failure
+      reconnect_on_error true
+      reload_on_failure true
+      reload_connections false
+      request_timeout 120s
+    </match>
+
+    # Catch-all: send unmatched logs to stdout (debugging)
+    <match **>
+      @type stdout
+      @id out_stdout
+    </match>

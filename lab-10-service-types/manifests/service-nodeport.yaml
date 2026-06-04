@@ -1,0 +1,32 @@
+# manifests/service-nodeport.yaml
+# NodePort Service - Expose ứng dụng ra ngoài cluster qua Node IP
+# Traffic flow: External Client → NodeIP:NodePort → ClusterIP → Pod
+#
+# Mọi node trong cluster sẽ open port này, kể cả nodes không chạy pod
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-nodeport
+  labels:
+    app: demo-app
+    service-type: nodeport
+  annotations:
+    # Ghi chú về port đang sử dụng
+    service.description: "NodePort service for external access during development"
+spec:
+  type: NodePort
+
+  selector:
+    app: demo-app
+
+  ports:
+    - name: http
+      port: 80          # ClusterIP port (internal)
+      targetPort: 8080  # Container port
+      # nodePort: 31234  # Có thể chỉ định cụ thể (30000-32767)
+      # Nếu không set, K8s sẽ auto-assign trong range 30000-32767
+      protocol: TCP
+
+  # externalTrafficPolicy: Local  # Chỉ route đến pods trên cùng node
+  # Mặc định là Cluster (route đến bất kỳ pod nào, kể cả cross-node)

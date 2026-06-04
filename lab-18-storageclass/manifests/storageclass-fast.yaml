@@ -1,0 +1,73 @@
+# =============================================================================
+# StorageClass: fast SSD storage
+# Lab 18 — StorageClass & Dynamic Provisioning
+# =============================================================================
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast
+  labels:
+    tier: performance
+    lab: "18"
+  annotations:
+    # Uncomment to make this the default StorageClass
+    # storageclass.kubernetes.io/is-default-class: "true"
+    description: "SSD-backed fast storage for performance-sensitive workloads"
+
+# ── Provisioner ──────────────────────────────────────────────────────────────
+# The component that creates PVs automatically when PVCs are created
+# Examples by environment:
+#   Minikube:  docker.io/hostpath
+#   kind:      rancher.io/local-path
+#   AWS EKS:   ebs.csi.aws.com
+#   GKE:       pd.csi.storage.gke.io
+#   AKS:       disk.csi.azure.com
+#   On-prem:   rook-ceph.rbd.csi.ceph.com
+provisioner: docker.io/hostpath
+
+# ── Parameters ───────────────────────────────────────────────────────────────
+# Provisioner-specific configuration
+# These vary greatly between provisioners
+parameters:
+  # For AWS EBS CSI:
+  # type: gp3
+  # iops: "3000"
+  # throughput: "125"
+
+  # For GCE PD CSI:
+  # type: pd-ssd
+
+  # For Ceph RBD:
+  # clusterID: <ceph-cluster-id>
+  # pool: kubernetes
+  # imageFeatures: layering
+  # csi.storage.k8s.io/fstype: ext4
+
+  # For local development (hostpath):
+  # No extra parameters needed
+
+# ── Reclaim Policy ───────────────────────────────────────────────────────────
+# What happens to the PV when PVC is deleted?
+# Delete: PV and underlying storage are deleted (default for dynamic)
+# Retain: PV is kept, must be manually cleaned up
+reclaimPolicy: Delete
+
+# ── Volume Expansion ─────────────────────────────────────────────────────────
+# Allow growing PVCs after creation (cannot shrink!)
+# Requires provisioner support
+allowVolumeExpansion: true
+
+# ── Volume Binding Mode ──────────────────────────────────────────────────────
+# Immediate: PV created as soon as PVC is created
+#   → May create PV in wrong zone (cloud multi-zone issue)
+# WaitForFirstConsumer: PV created only when Pod is scheduled
+#   → PV created in same zone/node as Pod ✓ (recommended for cloud)
+volumeBindingMode: Immediate
+
+# ── Mount Options ────────────────────────────────────────────────────────────
+# Options passed to the mount command
+# Only valid options for the specific storage type
+# mountOptions:
+#   - hard       # NFS hard mount
+#   - nfsvers=4.1
+#   - rw

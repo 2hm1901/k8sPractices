@@ -1,0 +1,116 @@
+---
+# Pod: secure-pod — Full Restricted Security Context
+# Tuân thủ Pod Security Standards "Restricted" profile
+#
+# Checklist cho Restricted PSS:
+# ✅ runAsNonRoot: true
+# ✅ runAsUser: non-zero UID
+# ✅ allowPrivilegeEscalation: false
+# ✅ capabilities.drop: ["ALL"]
+# ✅ readOnlyRootFilesystem: true
+# ✅ seccompProfile.type: RuntimeDefault (hoặc Localhost)
+# ✅ hostNetwork/hostPID/hostIPC: false (default)
+# ✅ volumes: chỉ dùng safe types (không hostPath)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: secure-pod
+  labels:
+    app: secure-app
+    security-profile: restricted
+  annotations:
+    description: "Fully hardened pod following Restricted PSS"
+spec:
+  # ─── Pod-level Security Context ───────────────────────────
+  securityContext:
+    # Tất cả containers phải chạy với non-root user
+    runAsNonRoot: true
+    # UID 1000 — nên match với USER trong Dockerfile
+    runAsUser: 1000
+    # GID 3000 — primary group
+    runAsGroup: 3000
+    # fsGroup: GID 2000 áp dụng cho mounted volumes
+    # Tất cả files trong volumes sẽ được owned by GID 2000
+    fsGroup: 2000
+    # ✅ Seccomp profile — bắt buộc trong PSS Restricted
+    seccompProfile:
+      type: RuntimeDefault  # Dùng containerd/docker default seccomp profile
+
+  # ─── Containers ───────────────────────────────────────────
+  containers:
+    - name: app
+      image: nginx:1.25-alpine
+      # ⚠️ nginx mặc định lắng nghe port 80 (cần root để bind < 1024)
+      # Dùng cách khác: cấu hình nginx listen port 8080
+      ports:
+        - containerPort: 8080
+          protocol: TCP
+
+      # ─── Container-level Security Context ─────────────────
+      securityContext:
+        # Không cho phép process leo thang đặc quyền (setuid/setgid)
+        allowPrivilegeEscalation: false
+        # Root filesystem chỉ đọc — ngăn malware ghi files
+        readOnlyRootFilesystem: true
+        # Drop TẤT CẢ capabilities — nguyên tắc least privilege
+        capabilities:
+          drop:
+            - ALL
+          # Chỉ add back những gì thực sự cần
+          # add:
+          #   - NET_BIND_SERVICE  # Nếu cần bind port < 1024
+
+        # runAsNonRoot inherited từ pod, nhưng có thể override
+        # runAsUser: 1000  (đã set ở pod level)
+
+      # Resources
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "128Mi"
+        limits:
+          cpu: "200m"
+          memory: "256Mi"
+
+      # ─── Volume Mounts ─────────────────────────────────────
+      # nginx cần ghi vào một số thư mục
+      volumeMounts:
+        - name: tmp-volume
+          mountPath: /tmp
+        - name: var-run
+          mountPath: /var/run
+        - name: var-cache-nginx
+          mountPath: /var/cache/nginx
+        - name: data-volume
+          mountPath: /data
+
+      # ConfigMap để cấu hình nginx chạy port 8080 (non-root)
+      # (Trong lab thực tế, tạo ConfigMap riêng)
+
+  # ─── Volumes ───────────────────────────────────────────────
+  volumes:
+    # tmpfs cho /tmp — an toàn, isolated, không persist
+    - name: tmp-volume
+      emptyDir:
+        medium: Memory    # Dùng RAM, không ghi ra disk
+        sizeLimit: "64Mi"
+    # tmpfs cho /var/run (nginx PID file)
+    - name: var-run
+      emptyDir:
+        medium: Memory
+        sizeLimit: "1Mi"
+    # tmpfs cho nginx cache
+    - name: var-cache-nginx
+      emptyDir:
+        medium: Memory
+        sizeLimit: "32Mi"
+    # Data volume — sẽ được owned by fsGroup (GID 2000)
+    - name: data-volume
+      emptyDir: {}
+
+  # ─── Host namespace isolation ──────────────────────────────
+  hostNetwork: false    # Không dùng host network
+  hostPID: false        # Không dùng host PID namespace
+  hostIPC: false        # Không dùng host IPC namespace
+
+  restartPolicy: Always

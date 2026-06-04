@@ -1,0 +1,249 @@
+# prometheus-values.yaml
+# Helm values for kube-prometheus-stack
+# Install with: helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+#   --namespace monitoring --values prometheus-values.yaml
+
+# =====================================================
+# GLOBAL SETTINGS
+# =====================================================
+nameOverride: ""
+fullnameOverride: ""
+
+# =====================================================
+# PROMETHEUS OPERATOR
+# =====================================================
+prometheusOperator:
+  enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# =====================================================
+# PROMETHEUS
+# =====================================================
+prometheus:
+  enabled: true
+
+  prometheusSpec:
+    # How long to retain metrics data (default: 10d)
+    retention: 7d
+
+    # Storage size for Prometheus TSDB
+    # For lab: use emptyDir (data lost on pod restart)
+    # For production: uncomment storageSpec below
+    storageSpec: {}
+    # storageSpec:
+    #   volumeClaimTemplate:
+    #     spec:
+    #       storageClassName: standard
+    #       accessModes: ["ReadWriteOnce"]
+    #       resources:
+    #         requests:
+    #           storage: 10Gi
+
+    # Resource limits
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+
+    # Scrape interval (default: 1m)
+    scrapeInterval: "30s"
+
+    # Evaluation interval for rules
+    evaluationInterval: "30s"
+
+    # Allow Prometheus to discover ServiceMonitors in ALL namespaces
+    # Default: only in same namespace as Prometheus
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector: {}
+    serviceMonitorNamespaceSelector: {}
+
+    podMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelector: {}
+    podMonitorNamespaceSelector: {}
+
+    ruleSelectorNilUsesHelmValues: false
+    ruleSelector: {}
+    ruleNamespaceSelector: {}
+
+    # Additional scrape configs for custom targets
+    additionalScrapeConfigs: []
+    # - job_name: 'my-external-service'
+    #   static_configs:
+    #     - targets: ['external-service:9090']
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 9090
+
+# =====================================================
+# ALERTMANAGER
+# =====================================================
+alertmanager:
+  enabled: true
+
+  alertmanagerSpec:
+    retention: 120h  # Keep alert state for 5 days
+
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+  service:
+    type: ClusterIP
+    port: 9093
+
+# =====================================================
+# GRAFANA
+# =====================================================
+grafana:
+  enabled: true
+
+  # Admin credentials (CHANGE IN PRODUCTION!)
+  adminUser: admin
+  adminPassword: admin123
+
+  # Persistence for dashboards (lab: disabled)
+  persistence:
+    enabled: false
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  service:
+    type: ClusterIP
+    port: 80
+
+  # Default datasources (Prometheus auto-configured)
+  sidecar:
+    dashboards:
+      enabled: true
+      # Watch for ConfigMaps with this label to auto-import dashboards
+      label: grafana_dashboard
+      labelValue: "1"
+    datasources:
+      enabled: true
+      defaultDatasourceEnabled: true
+
+  # Import default dashboards for K8s
+  defaultDashboardsEnabled: true
+  defaultDashboardsTimezone: "Asia/Ho_Chi_Minh"
+
+  # Grafana configuration
+  grafana.ini:
+    server:
+      root_url: "%(protocol)s://%(domain)s/"
+    auth.anonymous:
+      enabled: false
+    log:
+      level: info
+
+# =====================================================
+# NODE EXPORTER (DaemonSet on every node)
+# =====================================================
+nodeExporter:
+  enabled: true
+
+  # Metrics exposed by node-exporter
+  # filesystem, cpu, memory, disk, network, etc.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 30Mi
+    limits:
+      cpu: 200m
+      memory: 50Mi
+
+# =====================================================
+# KUBE STATE METRICS
+# =====================================================
+# Metrics about K8s objects (deployments, pods, etc.)
+kubeStateMetrics:
+  enabled: true
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# =====================================================
+# BUILT-IN K8s COMPONENT MONITORING
+# =====================================================
+kubeApiServer:
+  enabled: true
+
+kubeControllerManager:
+  enabled: false  # May not be accessible in managed K8s (GKE, EKS, AKS)
+
+kubeScheduler:
+  enabled: false  # Same reason
+
+kubeEtcd:
+  enabled: false  # Usually not accessible externally
+
+kubelet:
+  enabled: true
+  serviceMonitor:
+    # Scrape kubelet metrics including cAdvisor (container metrics)
+    cAdvisor: true
+
+coreDns:
+  enabled: true
+
+# =====================================================
+# DEFAULT ALERT RULES
+# =====================================================
+# kube-prometheus-stack includes many pre-built alert rules
+# Disable specific groups if needed
+defaultRules:
+  create: true
+  rules:
+    alertmanager: true
+    etcd: false
+    configReloaders: true
+    general: true
+    k8sContainerCpuUsageSecondsTotal: true
+    k8sContainerMemoryCache: true
+    k8sPodOwner: true
+    kubeApiserver: false  # Can be noisy
+    kubeApiserverAvailability: false
+    kubeApiserverBurnrate: false
+    kubeApiserverHistogram: false
+    kubeApiserverSlos: false
+    kubeControllerManager: false
+    kubelet: true
+    kubeProxy: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeStateMetrics: true
+    kubernetesApps: true
+    kubernetesResources: true
+    kubernetesStorage: true
+    kubernetesSystem: true
+    node: true
+    nodeExporterAlerting: true
+    nodeExporterRecording: true
+    prometheus: true
+    prometheusOperator: true

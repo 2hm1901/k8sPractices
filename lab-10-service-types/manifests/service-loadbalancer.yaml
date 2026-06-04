@@ -1,0 +1,48 @@
+# manifests/service-loadbalancer.yaml
+# LoadBalancer Service - Tích hợp với cloud provider để tạo external LB
+# Traffic flow: Internet → External LB → NodePort → ClusterIP → Pod
+#
+# Trên Minikube: cần 'minikube tunnel' để assign external IP
+# Trên GKE/EKS/AKS: cloud provider tự động provision LB
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-loadbalancer
+  labels:
+    app: demo-app
+    service-type: loadbalancer
+  annotations:
+    # GKE annotations (examples)
+    # cloud.google.com/load-balancer-type: "Internal"  # Internal LB
+
+    # AWS EKS annotations (examples)
+    # service.beta.kubernetes.io/aws-load-balancer-type: nlb
+    # service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+
+    # Azure AKS annotations (examples)
+    # service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+spec:
+  type: LoadBalancer
+
+  selector:
+    app: demo-app
+
+  ports:
+    - name: http
+      port: 80          # External port (trên LB)
+      targetPort: 8080  # Container port
+      protocol: TCP
+
+  # Giới hạn IP sources được phép truy cập LB (firewall)
+  loadBalancerSourceRanges:
+    - "0.0.0.0/0"    # Allow all (production nên restrict)
+    # - "203.0.113.0/24"  # Chỉ allow IP range cụ thể
+
+  # externalTrafficPolicy: Local  # Preserve client source IP, nhưng uneven load
+  externalTrafficPolicy: Cluster  # Mặc định: distribute evenly
+
+  # sessionAffinity: ClientIP  # Sticky session theo client IP
+  # sessionAffinityConfig:
+  #   clientIP:
+  #     timeoutSeconds: 10800  # 3 hours

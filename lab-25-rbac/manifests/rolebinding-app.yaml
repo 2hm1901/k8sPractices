@@ -1,0 +1,48 @@
+---
+# RoleBinding: app-pod-reader
+# Gán Role "pod-reader" cho ServiceAccount "app-service-account"
+# trong namespace "rbac-lab"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: app-pod-reader
+  namespace: rbac-lab
+  labels:
+    env: lab
+  annotations:
+    description: "Binds pod-reader role to the app service account"
+# roleRef: role cần bind (không thể thay đổi sau khi tạo)
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role          # Có thể là "Role" hoặc "ClusterRole"
+  name: pod-reader
+# subjects: ai được cấp quyền
+subjects:
+  # ServiceAccount: format system:serviceaccount:<namespace>:<name>
+  - kind: ServiceAccount
+    name: app-service-account
+    namespace: rbac-lab
+
+---
+# RoleBinding: developer-binding
+# Bind "developer" role cho một user giả lập "dev-alice"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: developer-binding
+  namespace: rbac-lab
+  labels:
+    env: lab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: developer
+subjects:
+  # User: thường được tạo qua OIDC hoặc certificates
+  - kind: User
+    name: dev-alice    # Tên user trong certificate CN hoặc OIDC claim
+    apiGroup: rbac.authorization.k8s.io
+  # Group: binding cho cả một group
+  - kind: Group
+    name: dev-team
+    apiGroup: rbac.authorization.k8s.io

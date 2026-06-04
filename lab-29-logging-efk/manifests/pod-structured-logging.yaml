@@ -1,0 +1,87 @@
+# pod-structured-logging.yaml
+# Demo application that generates structured JSON logs
+# This simulates a real microservice with proper logging practices
+
+---
+# Demo app that generates structured JSON logs continuously
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-logger
+  namespace: logging
+  labels:
+    app: demo-logger
+    version: "1.0.0"
+    team: "platform"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: demo-logger
+  template:
+    metadata:
+      labels:
+        app: demo-logger
+        version: "1.0.0"
+        team: "platform"
+    spec:
+      containers:
+        - name: demo-logger
+          image: busybox:1.35
+          command:
+            - /bin/sh
+            - -c
+            - |
+              # Simulates a microservice emitting structured JSON logs
+              # Each log line is a valid JSON object - easy to parse and search
+
+              LEVELS=("INFO" "INFO" "INFO" "INFO" "WARN" "ERROR" "DEBUG")
+              SERVICES=("payment-service" "user-service" "inventory-service" "notification-service")
+              ENDPOINTS=("/api/v1/users" "/api/v1/orders" "/api/v1/products" "/health" "/metrics")
+              METHODS=("GET" "POST" "PUT" "DELETE")
+              STATUSES=(200 200 200 201 400 404 500)
+
+              seq=0
+              while true; do
+                seq=$((seq + 1))
+                LEVEL=${LEVELS[$((RANDOM % ${#LEVELS[@]}))]}
+                SERVICE=${SERVICES[$((RANDOM % ${#SERVICES[@]}))]}
+                ENDPOINT=${ENDPOINTS[$((RANDOM % ${#ENDPOINTS[@]}))]}
+                METHOD=${METHODS[$((RANDOM % ${#METHODS[@]}))]}
+                STATUS=${STATUSES[$((RANDOM % ${#STATUSES[@]}))]}
+                DURATION=$((RANDOM % 500 + 5))
+                TRACE_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "trace-${seq}-$(date +%s)")
+                
+                TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+                
+                if [ "$LEVEL" = "ERROR" ]; then
+                  MESSAGE="Request failed with status ${STATUS}"
+                  ERROR_MSG="\"error\": \"connection timeout after ${DURATION}ms\","
+                elif [ "$LEVEL" = "WARN" ]; then
+                  MESSAGE="Slow request detected"
+                  ERROR_MSG="\"warning\": \"response time exceeded threshold\","
+                else
+                  MESSAGE="Request processed successfully"
+                  ERROR_MSG=""
+                fi
+
+                # Output structured JSON log to stdout
+                echo "{\"timestamp\": \"${TIMESTAMP}\", \"level\": \"${LEVEL}\", \"service\": \"${SERVICE}\", \"trace_id\": \"${TRACE_ID}\", \"message\": \"${MESSAGE}\", \"http_method\": \"${METHOD}\", \"http_path\": \"${ENDPOINT}\", \"http_status\": ${STATUS}, ${ERROR_MSG}\"duration_ms\": ${DURATION}, \"seq\": ${seq}}"
+
+                # Also emit occasional multi-line error (simulating stack trace)
+                if [ "$((RANDOM % 20))" -eq 0 ]; then
+                  echo "2026-06-04T07:51:37Z ERROR Exception in thread 'main' java.lang.NullPointerException"
+                  echo "    at com.example.service.PaymentService.processPayment(PaymentService.java:47)"
+                  echo "    at com.example.controller.PaymentController.handleRequest(PaymentController.java:23)"
+                  echo "    at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:897)"
+                fi
+
+                sleep 2
+              done
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "50m"
+              memory: "32Mi"

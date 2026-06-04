@@ -1,0 +1,32 @@
+# manifests/service-external-db.yaml
+# Service không có selector (no selector)
+# Dùng để kết nối đến PostgreSQL database chạy bên ngoài cluster
+# Địa chỉ IP thực tế sẽ được định nghĩa trong Endpoints object riêng biệt
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: external-postgres
+  labels:
+    app: postgres
+    tier: database
+    environment: production
+  annotations:
+    # Ghi chú để người khác hiểu đây là external service
+    service.kubernetes.io/description: "External PostgreSQL database - not managed by K8s"
+    # IP thực tế của server (để documentation)
+    external-service/host: "203.0.113.50"
+    external-service/environment: "production"
+spec:
+  # KHÔNG CÓ selector - đây là điểm khác biệt quan trọng!
+  # Kubernetes sẽ KHÔNG tự động tạo Endpoints
+  # Ta phải tạo Endpoints thủ công (xem file endpoints-external-db.yaml)
+
+  # ClusterIP sẽ được tự động cấp phát
+  type: ClusterIP
+
+  ports:
+    - name: postgres
+      port: 5432          # Port mà pods trong cluster sẽ kết nối
+      targetPort: 5432    # Port trên external server
+      protocol: TCP

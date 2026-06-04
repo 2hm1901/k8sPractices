@@ -1,0 +1,82 @@
+---
+# Pod: violation-pod
+# Pod này VI PHẠM Pod Security Standards "Restricted" profile
+# Dùng để test xem namespace enforcement có hoạt động không
+#
+# Khi apply vào namespace có PSS "restricted":
+# → Expected: REJECTED với error message chi tiết
+#
+# Vi phạm trong pod này:
+# ❌ runAsUser: 0 (chạy với root)
+# ❌ allowPrivilegeEscalation: true (mặc định)
+# ❌ readOnlyRootFilesystem: false (mặc định)
+# ❌ Không drop capabilities
+# ❌ Không có seccompProfile
+# ❌ hostNetwork: true (vi phạm isolation)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: violation-pod
+  labels:
+    app: violation-test
+    test-type: pss-violation
+  annotations:
+    description: "INTENTIONALLY insecure pod to test PSS enforcement"
+    purpose: "Testing — should be REJECTED in restricted namespace"
+spec:
+  # ❌ Vi phạm: dùng host network (isolation bypass)
+  hostNetwork: true
+  hostPID: false
+
+  # ❌ Không có Pod-level securityContext phù hợp
+  securityContext:
+    # ❌ Vi phạm: chạy với root (UID 0)
+    runAsUser: 0
+    # ❌ Vi phạm: không set runAsNonRoot
+    # ❌ Vi phạm: không có seccompProfile
+
+  containers:
+    - name: insecure-container
+      # ❌ Image cũ, có thể có vulnerabilities
+      image: ubuntu:20.04
+      command: ["sleep", "3600"]
+
+      # ❌ Không có container-level securityContext
+      # → allowPrivilegeEscalation defaults to true (vi phạm Restricted)
+      # → Không drop capabilities (vi phạm Restricted)
+      # → readOnlyRootFilesystem defaults to false (vi phạm Restricted)
+
+      securityContext:
+        # ❌ Vi phạm: cho phép privilege escalation
+        allowPrivilegeEscalation: true
+        # ❌ Vi phạm: không set readOnlyRootFilesystem
+        readOnlyRootFilesystem: false
+        # ❌ Vi phạm: thêm SYS_ADMIN capability nguy hiểm
+        capabilities:
+          add:
+            - SYS_ADMIN   # Capability RẤT nguy hiểm — gần như root
+            - NET_RAW     # Cho phép packet sniffing
+
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+
+# ─────────────────────────────────────────────────────────────────
+# Expected output khi apply vào restricted-ns:
+#
+# Error from server (Forbidden): error when creating "pod-violation-test.yaml":
+# pods "violation-pod" is forbidden: violates PodSecurity "restricted:latest":
+#   host namespaces (hostNetwork=true),
+#   allowPrivilegeEscalation != false (containers "insecure-container" must
+#     set securityContext.allowPrivilegeEscalation=false),
+#   unrestricted capabilities (containers "insecure-container" must set
+#     securityContext.capabilities.drop=["ALL"]; ...),
+#   runAsNonRoot != true (pod or containers "insecure-container" must set
+#     securityContext.runAsNonRoot=true),
+#   seccompProfile (pod or containers "insecure-container" must set
+#     securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+# ─────────────────────────────────────────────────────────────────

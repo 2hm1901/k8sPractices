@@ -1,0 +1,54 @@
+# =============================================================================
+# Pod: Guaranteed QoS Class
+# Lab 19 — Resource Requests & Limits
+# Condition: ALL containers must have requests == limits
+# =============================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-guaranteed
+  namespace: lab19
+  labels:
+    app: demo
+    qos-class: guaranteed
+    lab: "19"
+  annotations:
+    description: "Guaranteed QoS: requests == limits for ALL resources"
+    use-case: "Production databases, critical services that must not be evicted"
+spec:
+  containers:
+  - name: app
+    image: nginx:1.25-alpine
+    ports:
+    - containerPort: 80
+      name: http
+
+    resources:
+      # ── requests == limits → Guaranteed QoS ──────────────────────────────
+      requests:
+        cpu: "500m"      # 0.5 CPU
+        memory: "256Mi"  # 256 Mebibytes
+      limits:
+        cpu: "500m"      # SAME as requests → Guaranteed
+        memory: "256Mi"  # SAME as requests → Guaranteed
+
+    # Guaranteed pods:
+    # - Get exactly the resources they request (always)
+    # - Last to be evicted when node is under pressure
+    # - CPU is never throttled below requests
+    # - Memory kill happens only if usage > limits
+
+  # ── Also works with init containers ──────────────────────────────────────
+  initContainers:
+  - name: init-check
+    image: busybox:1.36
+    command: ['sh', '-c', 'echo "Guaranteed Pod initializing..." && sleep 2']
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "64Mi"
+      limits:
+        cpu: "100m"   # SAME as requests
+        memory: "64Mi" # SAME as requests
+
+  restartPolicy: Always

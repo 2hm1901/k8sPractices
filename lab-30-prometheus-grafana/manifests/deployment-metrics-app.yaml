@@ -1,0 +1,198 @@
+# deployment-metrics-app.yaml
+# Demo application that exposes custom Prometheus metrics
+# Simulates a real microservice with /metrics endpoint
+
+---
+# The application deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metrics-app
+  namespace: monitoring
+  labels:
+    app: metrics-app
+    version: "1.0.0"
+    team: "platform"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: metrics-app
+  template:
+    metadata:
+      labels:
+        app: metrics-app
+        version: "1.0.0"
+      annotations:
+        # Some Prometheus setups use pod annotations for scraping
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: metrics-app
+          # Python app that exposes Prometheus metrics
+          image: python:3.11-slim
+          ports:
+            - containerPort: 8080
+              name: metrics
+              protocol: TCP
+          command:
+            - /bin/sh
+            - -c
+            - |
+              pip install prometheus-client --quiet
+
+              cat > /app.py << 'PYTHON_EOF'
+              from prometheus_client import (
+                  start_http_server, Counter, Gauge, Histogram, Summary, REGISTRY
+              )
+              import random
+              import time
+              import threading
+
+              # ===== DEFINE METRICS =====
+
+              # Counter: monotonically increasing, use rate() to get rate
+              REQUEST_COUNT = Counter(
+                  'demo_requests_total',
+                  'Total number of HTTP requests processed',
+                  ['endpoint', 'method', 'status']
+              )
+
+              # Histogram: distribution of request latencies
+              REQUEST_LATENCY = Histogram(
+                  'demo_request_duration_seconds',
+                  'HTTP request latency in seconds',
+                  ['endpoint', 'method'],
+                  # Custom buckets optimized for API latencies
+                  buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+              )
+
+              # Gauge: current value (up/down)
+              ACTIVE_CONNECTIONS = Gauge(
+                  'demo_active_connections',
+                  'Number of currently active client connections'
+              )
+
+              # Gauge: queue depth simulation
+              QUEUE_DEPTH = Gauge(
+                  'demo_queue_depth',
+                  'Number of messages pending in processing queue',
+                  ['queue_name']
+              )
+
+              # Counter: errors by type
+              ERROR_COUNT = Counter(
+                  'demo_errors_total',
+                  'Total number of errors',
+                  ['error_type', 'endpoint']
+              )
+
+              # Summary: payload sizes
+              PAYLOAD_SIZE = Summary(
+                  'demo_request_payload_bytes',
+                  'Size of request payloads in bytes',
+                  ['endpoint']
+              )
+
+              # ===== SIMULATE TRAFFIC =====
+              endpoints = ['/api/users', '/api/orders', '/api/products', '/api/inventory']
+              methods = ['GET', 'POST', 'PUT', 'DELETE']
+              weights = [0.6, 0.2, 0.15, 0.05]  # GET is most common
+
+              def simulate_traffic():
+                  while True:
+                      endpoint = random.choice(endpoints)
+                      method = random.choices(methods, weights=weights)[0]
+                      
+                      # Simulate processing time (log-normal distribution)
+                      latency = random.lognormvariate(mu=-2.5, sigma=1.0)
+                      latency = min(latency, 5.0)  # Cap at 5 seconds
+                      
+                      # Determine status code
+                      rand = random.random()
+                      if rand < 0.85:
+                          status = '200'
+                      elif rand < 0.92:
+                          status = '201' if method == 'POST' else '200'
+                      elif rand < 0.97:
+                          status = '400'
+                          ERROR_COUNT.labels(error_type='client_error', endpoint=endpoint).inc()
+                      else:
+                          status = '500'
+                          ERROR_COUNT.labels(error_type='server_error', endpoint=endpoint).inc()
+                      
+                      # Record metrics
+                      REQUEST_COUNT.labels(endpoint=endpoint, method=method, status=status).inc()
+                      REQUEST_LATENCY.labels(endpoint=endpoint, method=method).observe(latency)
+                      PAYLOAD_SIZE.labels(endpoint=endpoint).observe(random.randint(100, 10000))
+                      
+                      time.sleep(random.uniform(0.1, 0.5))
+
+              def simulate_connections():
+                  while True:
+                      # Simulate connection fluctuation
+                      ACTIVE_CONNECTIONS.set(random.randint(5, 50))
+                      time.sleep(5)
+
+              def simulate_queues():
+                  queues = ['order-processing', 'email-notifications', 'inventory-updates']
+                  while True:
+                      for q in queues:
+                          depth = random.randint(0, 100)
+                          QUEUE_DEPTH.labels(queue_name=q).set(depth)
+                      time.sleep(10)
+
+              if __name__ == '__main__':
+                  # Start metrics HTTP server on port 8080
+                  start_http_server(8080)
+                  print("Metrics server started on :8080/metrics")
+                  
+                  # Start simulation threads
+                  threading.Thread(target=simulate_traffic, daemon=True).start()
+                  threading.Thread(target=simulate_connections, daemon=True).start()
+                  threading.Thread(target=simulate_queues, daemon=True).start()
+                  
+                  # Keep running
+                  while True:
+                      time.sleep(60)
+              PYTHON_EOF
+
+              python /app.py
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+
+---
+# Service to expose the metrics endpoint
+apiVersion: v1
+kind: Service
+metadata:
+  name: metrics-app
+  namespace: monitoring
+  labels:
+    app: metrics-app
+    # This label is used by ServiceMonitor selector
+    monitoring: "true"
+spec:
+  selector:
+    app: metrics-app
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

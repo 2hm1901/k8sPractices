@@ -1,0 +1,14 @@
+# namespace-logging.yaml
+# Creates a dedicated namespace for the EFK logging stack
+# Isolation ensures logging infrastructure doesn't interfere with workloads
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: logging
+  labels:
+    name: logging
+    purpose: observability
+    stack: efk
+  annotations:
+    description: "EFK Stack - Elasticsearch, Fluentd, Kibana for centralized logging"

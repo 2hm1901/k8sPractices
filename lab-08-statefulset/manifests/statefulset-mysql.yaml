@@ -1,0 +1,232 @@
+# Secret chứa MySQL root password
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+  namespace: lab08
+  labels:
+    app: mysql
+type: Opaque
+stringData:
+  # Trong production, dùng Kubernetes Secrets management tool (Vault, Sealed Secrets...)
+  root-password: "root123"
+  user-password: "user123"
+
+---
+# ConfigMap cho MySQL configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-config
+  namespace: lab08
+  labels:
+    app: mysql
+data:
+  # MySQL configuration file
+  my.cnf: |
+    [mysqld]
+    # Character set
+    character-set-server=utf8mb4
+    collation-server=utf8mb4_unicode_ci
+
+    # InnoDB settings
+    innodb_buffer_pool_size=128M
+    innodb_log_file_size=64M
+    innodb_flush_log_at_trx_commit=1
+
+    # General settings
+    max_connections=100
+    connect_timeout=10
+
+    # Slow query log
+    slow_query_log=1
+    slow_query_log_file=/var/log/mysql/slow.log
+    long_query_time=2
+
+    [client]
+    default-character-set=utf8mb4
+
+  # Initialization script
+  init.sql: |
+    CREATE DATABASE IF NOT EXISTS appdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    CREATE USER IF NOT EXISTS 'appuser'@'%' IDENTIFIED BY 'user123';
+    GRANT ALL PRIVILEGES ON appdb.* TO 'appuser'@'%';
+    FLUSH PRIVILEGES;
+    
+    USE appdb;
+    CREATE TABLE IF NOT EXISTS products (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      price DECIMAL(10,2),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+---
+# StatefulSet cho MySQL (single instance, không phải cluster)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: lab08
+  labels:
+    app: mysql
+    component: database
+spec:
+  serviceName: "mysql-headless"
+  replicas: 1   # Single MySQL instance
+
+  # Nếu replicas > 1 cần setup MySQL Replication
+  # Xem: https://kubernetes.io/docs/tasks/run-application/run-replicated-stateful-application/
+
+  podManagementPolicy: OrderedReady
+
+  updateStrategy:
+    type: RollingUpdate
+
+  selector:
+    matchLabels:
+      app: mysql
+
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      # Security context cho MySQL
+      securityContext:
+        fsGroup: 999      # mysql group
+        runAsUser: 999    # mysql user
+
+      # Init container để setup config và permissions
+      initContainers:
+      - name: mysql-init
+        image: busybox:1.35
+        command:
+        - sh
+        - -c
+        - |
+          # Setup permissions cho data directory
+          chmod 750 /var/lib/mysql
+          chown -R 999:999 /var/lib/mysql
+          echo "MySQL data directory initialized"
+        volumeMounts:
+        - name: mysql-data
+          mountPath: /var/lib/mysql
+        securityContext:
+          runAsUser: 0  # root để chown
+
+      containers:
+      - name: mysql
+        image: mysql:8.0
+        ports:
+        - containerPort: 3306
+          name: mysql
+
+        env:
+        # Root password từ Secret
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret
+              key: root-password
+
+        # Database được tạo tự động
+        - name: MYSQL_DATABASE
+          value: "appdb"
+
+        # App user
+        - name: MYSQL_USER
+          value: "appuser"
+
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret
+              key: user-password
+
+        # Pod identity (useful cho MySQL replication setup)
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "500m"
+            memory: "1Gi"
+
+        # Liveness probe — kiểm tra MySQL có thể nhận connections
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - |
+              mysqladmin ping -h 127.0.0.1 -u root -p$MYSQL_ROOT_PASSWORD
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        # Readiness probe — kiểm tra MySQL có thể nhận queries
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - |
+              mysql -h 127.0.0.1 -u root -p$MYSQL_ROOT_PASSWORD -e "SELECT 1"
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 3
+
+        volumeMounts:
+        # Persistent data directory
+        - name: mysql-data
+          mountPath: /var/lib/mysql
+
+        # MySQL configuration
+        - name: mysql-config
+          mountPath: /etc/mysql/conf.d/my.cnf
+          subPath: my.cnf
+
+        # Initialization script
+        - name: mysql-config
+          mountPath: /docker-entrypoint-initdb.d/init.sql
+          subPath: init.sql
+
+        # Log directory
+        - name: mysql-logs
+          mountPath: /var/log/mysql
+
+      # Thêm thời gian để MySQL flush connections và buffers
+      terminationGracePeriodSeconds: 60
+
+      volumes:
+      # ConfigMap volume
+      - name: mysql-config
+        configMap:
+          name: mysql-config
+
+      # Log directory (emptyDir — không cần persistent)
+      - name: mysql-logs
+        emptyDir: {}
+
+  # volumeClaimTemplates: Mỗi pod MySQL có PVC riêng
+  volumeClaimTemplates:
+  - metadata:
+      name: mysql-data
+      labels:
+        app: mysql
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      # Uncomment và thay bằng StorageClass phù hợp:
+      # storageClassName: standard
+      resources:
+        requests:
+          storage: 5Gi

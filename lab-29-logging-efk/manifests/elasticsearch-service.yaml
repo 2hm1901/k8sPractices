@@ -1,0 +1,25 @@
+# elasticsearch-service.yaml
+# ClusterIP service for internal cluster access
+# Fluentd will connect via this service DNS: elasticsearch.logging.svc.cluster.local
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  namespace: logging
+  labels:
+    app: elasticsearch
+    component: logging
+spec:
+  selector:
+    app: elasticsearch
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+      protocol: TCP
+    - name: transport
+      port: 9300
+      targetPort: 9300
+      protocol: TCP

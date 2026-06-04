@@ -1,0 +1,76 @@
+Thank you for installing {{ .Chart.Name }} v{{ .Chart.AppVersion }}!
+
+=======================================================
+  🚀 {{ include "my-webapp.fullname" . | upper }} DEPLOYED SUCCESSFULLY
+=======================================================
+
+Release Name    : {{ .Release.Name }}
+Namespace       : {{ .Release.Namespace }}
+Chart Version   : {{ .Chart.Version }}
+App Version     : {{ .Chart.AppVersion }}
+Replica Count   : {{ .Values.replicaCount }}
+
+-------------------------------------------------------
+📡 HOW TO ACCESS YOUR APPLICATION
+-------------------------------------------------------
+
+{{- if .Values.ingress.enabled }}
+  Your application is exposed via Ingress:
+  {{- if .Values.ingress.tls.enabled }}
+  URL: https://{{ .Values.ingress.host }}{{ .Values.ingress.path }}
+  {{- else }}
+  URL: http://{{ .Values.ingress.host }}{{ .Values.ingress.path }}
+  {{- end }}
+
+  Note: Make sure your DNS resolves {{ .Values.ingress.host }} to the Ingress controller IP.
+  Get Ingress IP:
+    kubectl get ingress {{ include "my-webapp.fullname" . }} -n {{ .Release.Namespace }}
+
+{{- else if contains "NodePort" .Values.service.type }}
+  Your application is exposed via NodePort:
+    export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "my-webapp.fullname" . }})
+    export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+    echo "URL: http://$NODE_IP:$NODE_PORT"
+
+{{- else if contains "LoadBalancer" .Values.service.type }}
+  Your application is exposed via LoadBalancer:
+  NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+    kubectl get svc --namespace {{ .Release.Namespace }} {{ include "my-webapp.fullname" . }} --watch
+
+{{- else }}
+  Your application is exposed via ClusterIP (internal only).
+  Access via port-forward:
+    kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "my-webapp.fullname" . }} 8080:{{ .Values.service.port }}
+    URL: http://localhost:8080
+
+{{- end }}
+
+-------------------------------------------------------
+🔧 USEFUL COMMANDS
+-------------------------------------------------------
+
+  # View running pods
+  kubectl get pods -n {{ .Release.Namespace }} -l "app.kubernetes.io/instance={{ .Release.Name }}"
+
+  # View logs
+  kubectl logs -n {{ .Release.Namespace }} -l "app.kubernetes.io/instance={{ .Release.Name }}" --tail=50 -f
+
+  # Run helm tests
+  helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+  # View current values
+  helm get values {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+  # Upgrade release
+  helm upgrade {{ .Release.Name }} my-webapp/ -n {{ .Release.Namespace }} --reuse-values
+
+  # Rollback to previous revision
+  helm rollback {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+  # Uninstall
+  helm uninstall {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+-------------------------------------------------------
+📚 Documentation: https://github.com/myorg/my-webapp
+🐛 Issues: https://github.com/myorg/my-webapp/issues
+-------------------------------------------------------

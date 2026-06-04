@@ -1,0 +1,78 @@
+# kibana-deployment.yaml
+# Kibana is the visualization layer for Elasticsearch
+# Single replica is sufficient for lab
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana
+  namespace: logging
+  labels:
+    app: kibana
+    component: logging
+    version: "8.11.0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kibana
+  template:
+    metadata:
+      labels:
+        app: kibana
+        component: logging
+    spec:
+      containers:
+        - name: kibana
+          # Must match Elasticsearch version!
+          image: docker.elastic.co/kibana/kibana:8.11.0
+          ports:
+            - containerPort: 5601
+              name: http
+
+          env:
+            # Point Kibana to our Elasticsearch service
+            - name: ELASTICSEARCH_HOSTS
+              value: "http://elasticsearch.logging.svc.cluster.local:9200"
+
+            # Server settings
+            - name: SERVER_HOST
+              value: "0.0.0.0"
+
+            # Disable telemetry
+            - name: TELEMETRY_ENABLED
+              value: "false"
+
+            # Disable security for lab (Elasticsearch also has security disabled)
+            - name: XPACK_SECURITY_ENABLED
+              value: "false"
+
+            # Set timezone
+            - name: TZ
+              value: "Asia/Ho_Chi_Minh"
+
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: 5601
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 5
+
+          livenessProbe:
+            httpGet:
+              path: /api/status
+              port: 5601
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3

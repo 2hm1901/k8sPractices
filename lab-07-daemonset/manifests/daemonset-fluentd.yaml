@@ -1,0 +1,175 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluentd-ds
+  namespace: lab07
+  labels:
+    app: fluentd
+    component: logging
+    k8s-app: fluentd-logging
+spec:
+  # DaemonSet không có "replicas" — mỗi node sẽ có đúng 1 pod
+
+  # Update strategy: RollingUpdate — cập nhật từng node một
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # maxUnavailable: Số pod có thể unavailable khi update
+      # Có thể là số nguyên hoặc phần trăm
+      maxUnavailable: 1
+
+  selector:
+    matchLabels:
+      app: fluentd
+      component: logging
+
+  template:
+    metadata:
+      labels:
+        app: fluentd
+        component: logging
+        version: "v1.15"
+      annotations:
+        # Prometheus scraping config
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "24231"
+    spec:
+      # Service account cho phép fluentd đọc pod logs
+      serviceAccountName: default
+
+      # Toleration để chạy trên master nodes (nếu có taint)
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+
+      # Priority: DaemonSet system pods nên có priority cao
+      priorityClassName: system-node-critical
+
+      # Chạy container với host network (cần để đọc logs)
+      # hostNetwork: true  # Uncomment nếu cần
+
+      containers:
+      - name: fluentd
+        # Image fluentd chính thức với Kubernetes plugin
+        image: fluent/fluentd-kubernetes-daemonset:v1.15-debian-elasticsearch7-1
+        # Dùng image nhẹ hơn cho lab:
+        # image: fluent/fluentd:v1.15-1
+        env:
+        # Cấu hình Elasticsearch (thay bằng địa chỉ thực tế)
+        - name: FLUENT_ELASTICSEARCH_HOST
+          value: "elasticsearch.logging.svc.cluster.local"
+        - name: FLUENT_ELASTICSEARCH_PORT
+          value: "9200"
+        - name: FLUENT_ELASTICSEARCH_SCHEME
+          value: "http"
+
+        # Thông tin node (cho metadata trong log)
+        - name: K8S_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "200Mi"
+          limits:
+            cpu: "500m"
+            memory: "500Mi"
+
+        # Ports
+        ports:
+        - name: monitor-agent
+          containerPort: 24231
+          protocol: TCP
+
+        # Volume mounts để đọc container logs
+        volumeMounts:
+        # Log files của containers
+        - name: varlog
+          mountPath: /var/log
+          readOnly: true
+
+        # Container logs directory
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+
+        # Fluentd config (custom)
+        - name: fluentd-config
+          mountPath: /fluentd/etc/
+
+        # Security context
+        securityContext:
+          # Chạy với privileges để đọc system logs
+          privileged: false
+          runAsNonRoot: false
+          runAsUser: 0    # Root required for reading log files
+
+      # Ưu tiên terminate fluentd cuối cùng để đảm bảo flush logs
+      terminationGracePeriodSeconds: 60
+
+      volumes:
+      # Mount /var/log của host vào container
+      - name: varlog
+        hostPath:
+          path: /var/log
+          type: Directory
+
+      # Container logs
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers
+          type: DirectoryOrCreate
+
+      # Fluentd config từ ConfigMap
+      - name: fluentd-config
+        configMap:
+          name: fluentd-config
+          optional: true   # OK nếu ConfigMap chưa tồn tại
+
+---
+# ConfigMap với fluentd configuration đơn giản
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluentd-config
+  namespace: lab07
+  labels:
+    app: fluentd
+data:
+  fluent.conf: |
+    # Thu thập logs từ tất cả containers
+    <source>
+      @type tail
+      path /var/log/containers/*.log
+      pos_file /var/log/fluentd-containers.log.pos
+      tag kubernetes.*
+      read_from_head true
+      <parse>
+        @type json
+        time_format %Y-%m-%dT%H:%M:%S.%NZ
+      </parse>
+    </source>
+
+    # Lọc và enrich với Kubernetes metadata
+    <filter kubernetes.**>
+      @type kubernetes_metadata
+    </filter>
+
+    # Output ra stdout (cho lab)
+    <match **>
+      @type stdout
+    </match>

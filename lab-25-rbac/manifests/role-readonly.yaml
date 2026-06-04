@@ -1,0 +1,36 @@
+---
+# Role: pod-reader (Read-Only Pattern)
+# Scope: Namespace-scoped (chỉ hoạt động trong rbac-lab namespace)
+# Purpose: Cho phép đọc pods và logs — phù hợp cho monitoring, CI/CD checks
+#
+# Common pattern: read-only role cho observability tools (Prometheus, Datadog agents, etc.)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-reader
+  namespace: rbac-lab
+  labels:
+    rbac-level: readonly
+    env: lab
+  annotations:
+    description: "Read-only access to pods, services, and endpoints"
+rules:
+  # ✅ Core API group (apiGroups: [""] = core group)
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/log        # Cho phép xem logs
+      - pods/status     # Cho phép xem trạng thái
+      - services
+      - endpoints
+      - configmaps      # Đọc config (không phải secrets!)
+    verbs: ["get", "list", "watch"]
+
+  # ✅ Apps group — đọc deployments, replicasets
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - replicasets
+      - statefulsets
+      - daemonsets
+    verbs: ["get", "list", "watch"]

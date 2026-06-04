@@ -1,0 +1,62 @@
+---
+# ClusterRole: node-reader
+# Scope: Cluster-wide (có thể đọc Nodes ở bất kỳ đâu)
+# Purpose: Cho phép đọc thông tin Node — cần thiết cho monitoring agents
+#
+# Node là cluster-scoped resource, nên PHẢI dùng ClusterRole
+# (không thể tạo Role cho nodes)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: node-reader
+  labels:
+    rbac-level: readonly
+    env: lab
+  annotations:
+    description: "Read-only access to cluster-scoped resources: nodes, PVs, namespaces"
+rules:
+  # ✅ Cluster-scoped core resources
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/status
+      - nodes/metrics
+      - persistentvolumes    # PV là cluster-scoped
+      - namespaces
+      - resourcequotas
+    verbs: ["get", "list", "watch"]
+
+  # ✅ Storage cluster-scoped resources
+  - apiGroups: ["storage.k8s.io"]
+    resources:
+      - storageclasses
+      - volumeattachments
+    verbs: ["get", "list", "watch"]
+
+  # ✅ Metrics API (cần cho monitoring)
+  - apiGroups: ["metrics.k8s.io"]
+    resources:
+      - nodes
+      - pods
+    verbs: ["get", "list"]
+
+---
+# ClusterRole: secret-reader (ví dụ nguy hiểm - cẩn thận!)
+# Đây là ví dụ về một ClusterRole QUÁ RỘNG — nên tránh trong production
+# Chỉ dùng cho external-secrets operator hoặc vault agent
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: secret-reader-example
+  labels:
+    rbac-level: sensitive
+    env: lab
+  annotations:
+    description: "EXAMPLE ONLY — grants cross-namespace secret access. Use with extreme caution."
+    warning: "Do NOT use this pattern unless absolutely necessary"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+    # ⚠️ Đây là quyền RẤT NHẠY CẢM
+    # Ai có quyền này có thể đọc ALL secrets trong cluster

@@ -1,0 +1,24 @@
+# kibana-service.yaml
+# NodePort for direct browser access during lab
+# For production: use Ingress or LoadBalancer
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana
+  namespace: logging
+  labels:
+    app: kibana
+    component: logging
+spec:
+  selector:
+    app: kibana
+  type: NodePort
+  ports:
+    - name: http
+      port: 5601
+      targetPort: 5601
+      # NodePort range: 30000-32767
+      # Access via: http://<node-ip>:30561
+      nodePort: 30561
+      protocol: TCP

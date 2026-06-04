@@ -1,0 +1,51 @@
+# =============================================================================
+# Lab 20 — HPA dựa trên Memory (HPA v2 API)
+# Lưu ý: Memory-based HPA ít phổ biến hơn CPU vì memory không tự giảm
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: php-apache-memory-hpa
+  labels:
+    lab: "20"
+    type: memory-based
+  annotations:
+    description: |
+      Memory-based HPA: Scale khi average memory usage vượt 100Mi/pod.
+      Lưu ý: Memory không tự release như CPU, có thể gây khó scale down.
+      Thường dùng kết hợp với VPA hoặc custom metrics.
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: php-apache
+
+  minReplicas: 1
+  maxReplicas: 8
+
+  metrics:
+  # Memory dùng AverageValue (byte) thay vì Utilization (%)
+  # Vì memory limit thường khác requests và khó tính %
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: AverageValue
+        # Scale up khi average memory mỗi pod vượt 100Mi
+        averageValue: 100Mi
+
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60  # Chờ 1 phút (memory spike có thể tạm thời)
+      policies:
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+
+    scaleDown:
+      # Scale down rất chậm vì memory khó giảm
+      stabilizationWindowSeconds: 600  # 10 phút
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 120  # 1 pod mỗi 2 phút

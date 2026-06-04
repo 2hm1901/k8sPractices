@@ -1,0 +1,57 @@
+# servicemonitor-app.yaml
+# ServiceMonitor CRD tells Prometheus Operator HOW to scrape our app
+# Prometheus Operator watches for ServiceMonitor objects and updates
+# Prometheus scrape config automatically (no Prometheus restart needed!)
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: metrics-app
+  namespace: monitoring
+  labels:
+    # This label must match the Prometheus serviceMonitorSelector
+    # (In our prometheus-values.yaml, serviceMonitorSelector: {} means select ALL)
+    app: metrics-app
+    release: kube-prometheus-stack
+spec:
+  # Select the Service to scrape
+  selector:
+    matchLabels:
+      app: metrics-app
+      monitoring: "true"
+
+  # Which namespaces to look for matching services
+  namespaceSelector:
+    matchNames:
+      - monitoring
+
+  # How to scrape the endpoints
+  endpoints:
+    - port: metrics          # Must match the Service port name
+      path: /metrics         # Path to scrape (default: /metrics)
+      interval: 30s          # How often to scrape
+      scrapeTimeout: 10s     # Timeout for each scrape
+
+      # Add extra labels to all metrics from this target
+      metricRelabelings:
+        # Drop metrics we don't need (reduce cardinality)
+        - sourceLabels: [__name__]
+          regex: 'go_.*'     # Drop Go runtime metrics (noisy)
+          action: drop
+
+        # Rename a label
+        - sourceLabels: [endpoint]
+          targetLabel: api_endpoint
+          action: replace
+
+      # Relabeling before scraping (to modify target labels)
+      relabelings:
+        # Add cluster label
+        - targetLabel: cluster
+          replacement: k8s-lab
+          action: replace
+
+        # Keep the pod name from K8s metadata
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+          action: replace

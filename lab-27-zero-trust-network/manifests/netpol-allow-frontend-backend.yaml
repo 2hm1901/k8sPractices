@@ -1,0 +1,112 @@
+---
+# NetworkPolicy: allow-frontend-to-backend
+# STEP 3: Cho phép Frontend pods giao tiếp với Backend pods
+#
+# Luồng: [Ingress Controller] → [Frontend :3000] → [Backend :8080]
+#
+# Cần 2 policies:
+# 1. Ingress cho Backend: chỉ accept từ Frontend
+# 2. Egress cho Frontend: chỉ gửi đến Backend
+#
+# Selector dùng labels để identify pods:
+# - Frontend pods: app=frontend
+# - Backend pods: app=backend
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-to-backend
+  namespace: three-tier-app
+  annotations:
+    description: "STEP 3a: Allow ingress to backend from frontend only"
+    apply-order: "3"
+spec:
+  # Policy này áp dụng cho BACKEND pods
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    # Chỉ cho phép ingress từ frontend pods
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - protocol: TCP
+          port: 8080   # Backend API port
+
+---
+# NetworkPolicy: allow-frontend-egress-to-backend
+# Cho phép Frontend egress đến Backend và Internet (optional)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-egress
+  namespace: three-tier-app
+  annotations:
+    description: "STEP 3b: Allow egress from frontend to backend + optional internet"
+    apply-order: "3"
+spec:
+  # Policy này áp dụng cho FRONTEND pods
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Egress
+  egress:
+    # Allow egress đến Backend pods
+    - to:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # Allow egress đến Ingress Controller (nếu cần callback)
+    # - to:
+    #     - namespaceSelector:
+    #         matchLabels:
+    #           kubernetes.io/metadata.name: ingress-nginx
+
+    # Optional: Allow egress ra internet cho static assets (CDN)
+    # Chỉ allow specific CIDRs, không phải all internet
+    # - to:
+    #     - ipBlock:
+    #         cidr: 104.16.0.0/12   # Cloudflare CDN
+    #         except: []
+    #   ports:
+    #     - protocol: TCP
+    #       port: 443
+
+---
+# NetworkPolicy: allow-ingress-controller-to-frontend
+# Cho phép Ingress Controller → Frontend
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-frontend
+  namespace: three-tier-app
+  annotations:
+    description: "Allow ingress from Ingress Controller to frontend pods"
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    # Cho phép từ ingress-nginx namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000   # Frontend port
+    # Hoặc cho phép từ tất cả (nếu dùng NodePort/LoadBalancer)
+    - from: []
+      ports:
+        - protocol: TCP
+          port: 3000

@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  namespace: lab06
+  labels:
+    app: nginx
+    version: "1.22"
+  # Annotation để track change-cause trong rollout history
+  annotations:
+    kubernetes.io/change-cause: "Update to nginx:1.22-alpine with improved readiness probe"
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+
+  # Chờ pod ổn định thêm 15 giây (tăng từ 10s lên)
+  minReadySeconds: 15
+
+  selector:
+    matchLabels:
+      app: nginx
+
+  # Rolling Update với cấu hình khác so với v1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2          # Tăng tốc độ update: cho phép 2 pod thêm
+      maxUnavailable: 0    # Vẫn zero downtime
+
+  template:
+    metadata:
+      labels:
+        app: nginx
+        version: "1.22"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "80"
+        # Annotation để force pod restart khi ConfigMap thay đổi (trick phổ biến)
+        configmap-version: "v2"
+    spec:
+      containers:
+      - name: nginx
+        # === CHỈ THAY ĐỔI IMAGE === (từ 1.21 lên 1.22)
+        image: nginx:1.22-alpine
+        ports:
+        - containerPort: 80
+          name: http
+
+        env:
+        - name: APP_VERSION
+          value: "v2"    # ← Cập nhật version
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        # Thêm environment variable mới
+        - name: FEATURE_FLAGS
+          value: "new-ui=true,dark-mode=true"
+
+        resources:
+          requests:
+            cpu: "75m"       # Tăng request một chút
+            memory: "64Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+
+        # Readiness probe được cải thiện (initialDelay giảm → deploy nhanh hơn)
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+            httpHeaders:
+            - name: X-Health-Check
+              value: "true"
+          initialDelaySeconds: 3   # Giảm từ 5 → 3
+          periodSeconds: 3         # Check thường xuyên hơn
+          successThreshold: 1
+          failureThreshold: 3
+
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          failureThreshold: 3
+
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 10"]  # Tăng drain time
+
+      terminationGracePeriodSeconds: 45  # Tăng grace period
+
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - nginx
+              topologyKey: kubernetes.io/hostname

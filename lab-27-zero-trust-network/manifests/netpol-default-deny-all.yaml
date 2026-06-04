@@ -1,0 +1,27 @@
+---
+# NetworkPolicy: default-deny-all
+# ⚠️ QUAN TRỌNG: Apply policy này sẽ chặn TẤT CẢ traffic trong namespace!
+# Luôn apply DNS policy NGAY SAU policy này.
+#
+# Nguyên tắc Zero-trust: "Deny all, allow specific"
+# Bước đầu tiên: Tạo một "clean slate" bằng cách block everything
+#
+# Hoạt động như thế nào:
+# - podSelector: {} → áp dụng cho TẤT CẢ pods trong namespace
+# - policyTypes: [Ingress, Egress] → chặn cả 2 chiều
+# - Không có rules → chặn tất cả (empty = deny all)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: three-tier-app
+  annotations:
+    description: "STEP 1: Default deny all ingress and egress — Zero-trust baseline"
+    apply-order: "1"
+spec:
+  # {} = chọn TẤT CẢ pods trong namespace
+  podSelector: {}
+  policyTypes:
+    - Ingress   # Chặn tất cả ingress traffic vào
+    - Egress    # Chặn tất cả egress traffic ra
+  # Không có ingress/egress rules → deny everything

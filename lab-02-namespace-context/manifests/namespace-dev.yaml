@@ -1,0 +1,66 @@
+# Namespace: dev (Development Environment)
+# Dùng cho môi trường phát triển, cho phép developers thử nghiệm tự do
+# ResourceQuota nhỏ để tiết kiệm tài nguyên cluster
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev
+  labels:
+    # Labels để organize và filter namespaces
+    environment: development
+    team: backend
+    managed-by: kubectl
+    cost-center: engineering
+  annotations:
+    # Annotations cho metadata bổ sung (không dùng để select)
+    description: "Development environment namespace - free to experiment"
+    owner: "platform-team@company.com"
+    created-by: "lab-02-namespace-context"
+---
+# ResourceQuota giới hạn tổng tài nguyên trong namespace dev
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: dev-quota
+  namespace: dev
+spec:
+  hard:
+    # Compute resources
+    requests.cpu: "2"          # Tổng CPU requests tối đa
+    requests.memory: 4Gi       # Tổng Memory requests tối đa
+    limits.cpu: "4"            # Tổng CPU limits tối đa
+    limits.memory: 8Gi         # Tổng Memory limits tối đa
+    # Object count limits
+    pods: "20"                 # Tối đa 20 pods
+    services: "10"             # Tối đa 10 services
+    secrets: "20"              # Tối đa 20 secrets
+    configmaps: "20"           # Tối đa 20 configmaps
+    persistentvolumeclaims: "5" # Tối đa 5 PVCs
+---
+# LimitRange đặt default resource limits cho containers trong namespace
+# Nếu container không khai báo limits/requests, sẽ dùng giá trị default này
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: dev-limitrange
+  namespace: dev
+spec:
+  limits:
+  - type: Container
+    default:              # Default limits (nếu container không khai báo)
+      cpu: "200m"
+      memory: "256Mi"
+    defaultRequest:       # Default requests (nếu container không khai báo)
+      cpu: "100m"
+      memory: "128Mi"
+    max:                  # Giới hạn tối đa mỗi container có thể xin
+      cpu: "1"
+      memory: "1Gi"
+    min:                  # Giới hạn tối thiểu
+      cpu: "50m"
+      memory: "64Mi"
+  - type: Pod
+    max:
+      cpu: "2"
+      memory: "2Gi"

@@ -1,0 +1,123 @@
+# elasticsearch-deployment.yaml
+# Single-node Elasticsearch for lab/dev purposes
+# For production: use StatefulSet with multiple replicas and persistent volumes
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elasticsearch
+  namespace: logging
+  labels:
+    app: elasticsearch
+    component: logging
+    version: "8.11.0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+        component: logging
+    spec:
+      # Elasticsearch needs specific kernel settings
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.35
+          command: ["sh", "-c", "chown -R 1000:1000 /usr/share/elasticsearch/data"]
+          volumeMounts:
+            - name: es-data
+              mountPath: /usr/share/elasticsearch/data
+
+        - name: increase-vm-max-map
+          image: busybox:1.35
+          command: ["sysctl", "-w", "vm.max_map_count=262144"]
+          securityContext:
+            privileged: true
+
+        - name: increase-fd-ulimit
+          image: busybox:1.35
+          command: ["sh", "-c", "ulimit -n 65536"]
+          securityContext:
+            privileged: true
+
+      containers:
+        - name: elasticsearch
+          image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+          ports:
+            - containerPort: 9200  # REST API
+              name: http
+            - containerPort: 9300  # Node-to-node communication
+              name: transport
+
+          env:
+            # Single-node mode (no clustering)
+            - name: discovery.type
+              value: "single-node"
+
+            # Reduce JVM heap for lab environment (production: 50% of RAM)
+            - name: ES_JAVA_OPTS
+              value: "-Xms512m -Xmx512m"
+
+            # Disable security for lab (NEVER disable in production!)
+            - name: xpack.security.enabled
+              value: "false"
+
+            # Disable ML features to save resources
+            - name: xpack.ml.enabled
+              value: "false"
+
+            # Set cluster name
+            - name: cluster.name
+              value: "k8s-logging"
+
+            - name: node.name
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "1Gi"
+            limits:
+              cpu: "1000m"
+              memory: "1.5Gi"
+
+          volumeMounts:
+            - name: es-data
+              mountPath: /usr/share/elasticsearch/data
+
+          # Readiness probe - wait for ES to be ready
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health?wait_for_status=yellow&timeout=5s
+              port: 9200
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 5
+
+          # Liveness probe
+          livenessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: 9200
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+
+      volumes:
+        - name: es-data
+          # Use emptyDir for lab (data lost on pod restart)
+          # For production: use PersistentVolumeClaim
+          emptyDir: {}
+
+      # Allow scheduling on any node
+      tolerations:
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"

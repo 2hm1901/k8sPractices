@@ -1,0 +1,83 @@
+# =============================================================================
+# PersistentVolume: hostPath (for local development)
+# Lab 17 — PersistentVolume & PVC
+# ⚠️  hostPath is for LOCAL DEVELOPMENT ONLY
+#     In production, use: NFS, cloud volumes (EBS, GCE PD), Ceph, etc.
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-app-data
+  labels:
+    type: local
+    app: webapp
+    tier: data
+    lab: "17"
+  annotations:
+    description: "Local hostPath PV for development - NOT for production"
+spec:
+  # ── Capacity ───────────────────────────────────────────────────────────────
+  capacity:
+    storage: 5Gi
+
+  # ── Access Modes ───────────────────────────────────────────────────────────
+  # RWO = ReadWriteOnce: mounted as read-write by a single node
+  # ROX = ReadOnlyMany:  mounted read-only by many nodes
+  # RWX = ReadWriteMany: mounted as read-write by many nodes
+  # RWOP = ReadWriteOncePod: mounted as read-write by a single pod (K8s 1.22+)
+  accessModes:
+    - ReadWriteOnce
+
+  # ── Reclaim Policy ─────────────────────────────────────────────────────────
+  # Retain: Keep data after PVC deleted (admin must manually clean up)
+  # Delete: Delete PV and storage automatically when PVC deleted
+  # Recycle: Deprecated (run rm -rf, then make Available again)
+  persistentVolumeReclaimPolicy: Retain
+
+  # ── StorageClass ───────────────────────────────────────────────────────────
+  # Must match the storageClassName in the PVC
+  storageClassName: manual
+
+  # ── Volume Mode ────────────────────────────────────────────────────────────
+  # Filesystem (default): mounted as directory
+  # Block: raw block device (for advanced use cases)
+  volumeMode: Filesystem
+
+  # ── hostPath configuration ─────────────────────────────────────────────────
+  # Type options:
+  #   "" (empty): no checks
+  #   DirectoryOrCreate: create if not exists
+  #   Directory: must exist
+  #   FileOrCreate: create file if not exists
+  #   File: must exist
+  #   Socket: must be a UNIX socket
+  #   CharDevice: must be a character device
+  #   BlockDevice: must be a block device
+  hostPath:
+    path: /mnt/data/app-data
+    type: DirectoryOrCreate
+
+---
+# =============================================================================
+# PersistentVolume: logs storage (ReadWriteMany example)
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-app-logs
+  labels:
+    type: local
+    app: webapp
+    tier: logs
+    lab: "17"
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteMany    # Multiple pods can write (useful for log aggregation)
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: manual
+  volumeMode: Filesystem
+  hostPath:
+    path: /mnt/data/app-logs
+    type: DirectoryOrCreate

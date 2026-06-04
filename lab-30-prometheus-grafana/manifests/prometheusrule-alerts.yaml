@@ -1,0 +1,168 @@
+# prometheusrule-alerts.yaml
+# PrometheusRule CRD defines alerting and recording rules
+# Prometheus Operator automatically loads these rules into Prometheus
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: demo-app-alerts
+  namespace: monitoring
+  labels:
+    # Must match Prometheus ruleSelector
+    release: kube-prometheus-stack
+    app: kube-prometheus-stack
+spec:
+  groups:
+    # =====================================================
+    # RECORDING RULES: Pre-compute expensive queries
+    # =====================================================
+    - name: demo.recording_rules
+      interval: 30s
+      rules:
+        # Pre-compute request rate (used in multiple dashboards)
+        - record: job:demo_requests:rate5m
+          expr: sum(rate(demo_requests_total[5m])) by (job, namespace)
+
+        # Pre-compute error rate
+        - record: job:demo_errors:rate5m
+          expr: sum(rate(demo_requests_total{status=~"5.."}[5m])) by (job, namespace)
+
+        # Pre-compute P99 latency
+        - record: job:demo_latency_p99:rate5m
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(demo_request_duration_seconds_bucket[5m])) by (le, job, namespace)
+            )
+
+    # =====================================================
+    # ALERTING RULES: When to fire alerts
+    # =====================================================
+    - name: demo.alerts
+      rules:
+        # Alert: High error rate (>5% for 2 minutes)
+        - alert: HighErrorRate
+          expr: |
+            (
+              sum(rate(demo_requests_total{status=~"5.."}[5m])) by (namespace, job)
+              /
+              sum(rate(demo_requests_total[5m])) by (namespace, job)
+            ) > 0.05
+          for: 2m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "High error rate detected in {{ $labels.job }}"
+            description: |
+              Service {{ $labels.job }} in namespace {{ $labels.namespace }}
+              has error rate of {{ $value | humanizePercentage }} (threshold: 5%)
+              for the past 2 minutes.
+            runbook_url: "https://wiki.example.com/runbooks/high-error-rate"
+
+        # Alert: Very high error rate (>20% for 1 minute) - critical
+        - alert: CriticalErrorRate
+          expr: |
+            (
+              sum(rate(demo_requests_total{status=~"5.."}[5m])) by (namespace, job)
+              /
+              sum(rate(demo_requests_total[5m])) by (namespace, job)
+            ) > 0.20
+          for: 1m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Critical error rate in {{ $labels.job }}"
+            description: |
+              Service {{ $labels.job }} has error rate of {{ $value | humanizePercentage }}.
+              IMMEDIATE ACTION REQUIRED.
+
+        # Alert: High P99 latency (>1 second for 5 minutes)
+        - alert: HighLatencyP99
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(demo_request_duration_seconds_bucket[5m])) by (le, job, endpoint)
+            ) > 1.0
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "P99 latency above 1s for {{ $labels.job }}/{{ $labels.endpoint }}"
+            description: |
+              P99 latency for {{ $labels.endpoint }} is {{ $value | humanizeDuration }}.
+              SLO threshold: 1 second.
+
+        # Alert: Service down (no metrics for 5 minutes)
+        - alert: ServiceDown
+          expr: |
+            absent(demo_requests_total)
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Demo service is not reporting metrics"
+            description: "No metrics received from demo-app for 5 minutes. Service may be down."
+
+        # Alert: High queue depth
+        - alert: QueueDepthHigh
+          expr: demo_queue_depth > 80
+          for: 3m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Queue {{ $labels.queue_name }} depth is high"
+            description: "Queue {{ $labels.queue_name }} has {{ $value }} pending messages."
+
+    # =====================================================
+    # KUBERNETES RESOURCE ALERTS
+    # =====================================================
+    - name: kubernetes.alerts
+      rules:
+        # Alert: Pod restarting frequently
+        - alert: PodCrashLooping
+          expr: |
+            increase(kube_pod_container_status_restarts_total[1h]) > 5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash-looping"
+            description: |
+              Pod {{ $labels.pod }} (container: {{ $labels.container }}) in namespace
+              {{ $labels.namespace }} has restarted {{ $value }} times in the last hour.
+
+        # Alert: Pod not ready
+        - alert: PodNotReady
+          expr: |
+            sum by (namespace, pod) (
+              max by(namespace, pod) (
+                kube_pod_status_phase{phase=~"Pending|Unknown|Failed"}
+              ) * on(namespace, pod) group_left(owner_kind)
+              max by(namespace, pod, owner_kind) (
+                kube_pod_owner{owner_kind!="Job"}
+              )
+            ) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} not ready"
+            description: "Pod {{ $labels.pod }} has been in a non-ready state for 15 minutes."
+
+        # Alert: High memory usage
+        - alert: HighMemoryUsage
+          expr: |
+            (
+              container_memory_working_set_bytes{container!=""}
+              / on(pod, namespace)
+              kube_pod_container_resource_limits{resource="memory"}
+            ) > 0.85
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High memory usage in {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: |
+              Container {{ $labels.container }} is using {{ $value | humanizePercentage }}
+              of its memory limit.

@@ -1,0 +1,68 @@
+# =============================================================================
+# Lab 20 — Load Generator Pod
+# Tạo traffic để trigger HPA scale up
+# =============================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: load-generator
+  labels:
+    app: load-generator
+    lab: "20"
+  annotations:
+    description: |
+      Pod tạo infinite loop gọi HTTP requests đến php-apache service.
+      Dùng để trigger HPA scale up trong quá trình học.
+      XÓA pod này để dừng load và xem HPA scale down.
+spec:
+  # Restart nếu pod bị lỗi
+  restartPolicy: OnFailure
+  containers:
+  - name: load-generator
+    image: busybox:1.36
+    # Infinite loop gọi HTTP request đến php-apache
+    # wget -q -O-: quiet mode, output to stdout
+    command:
+    - /bin/sh
+    - -c
+    - |
+      echo "Starting load generator..."
+      echo "Target: http://php-apache/"
+      echo "Press Ctrl+C or delete this pod to stop"
+      while true; do
+        wget -q -O- http://php-apache/ > /dev/null 2>&1
+        # Không có sleep → maximum request rate
+        # Thêm 'sleep 0.01' nếu muốn giảm load
+      done
+    resources:
+      requests:
+        cpu: 50m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+---
+# Alternative: Dùng Job thay Pod để có timeout tự động
+# Uncomment nếu muốn load test trong thời gian cố định (5 phút)
+# apiVersion: batch/v1
+# kind: Job
+# metadata:
+#   name: load-test-job
+#   labels:
+#     lab: "20"
+# spec:
+#   template:
+#     spec:
+#       restartPolicy: Never
+#       containers:
+#       - name: load-tester
+#         image: alpine/curl:8.2.1
+#         # Chạy hey (HTTP load tester) trong 5 phút, 50 concurrent requests
+#         command:
+#         - /bin/sh
+#         - -c
+#         - |
+#           apk add --no-cache hey 2>/dev/null || \
+#           wget -qO /usr/local/bin/hey https://hey-release.s3.us-east-2.amazonaws.com/hey_linux_amd64 && \
+#           chmod +x /usr/local/bin/hey && \
+#           hey -z 5m -c 50 http://php-apache/

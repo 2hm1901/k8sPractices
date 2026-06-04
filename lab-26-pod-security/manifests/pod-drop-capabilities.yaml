@@ -1,0 +1,85 @@
+---
+# Pod: drop-cap-pod
+# Demonstrates Linux Capabilities — Drop ALL, then add only what's needed
+#
+# Kiểm tra capabilities sau khi deploy:
+# kubectl exec drop-cap-pod -- cat /proc/1/status | grep Cap
+# Decode: capsh --decode=<hex value>
+apiVersion: v1
+kind: Pod
+metadata:
+  name: drop-cap-pod
+  labels:
+    app: drop-cap-demo
+  annotations:
+    description: "Demonstrates dropping ALL Linux capabilities then selectively adding"
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    seccompProfile:
+      type: RuntimeDefault
+
+  containers:
+    # ─── Container 1: Minimal capabilities (drop ALL, add nothing) ───
+    - name: minimal-caps
+      image: alpine:3.18
+      command: ["sleep", "3600"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+          # Không add gì → zero capabilities
+          # CapInh: 0000000000000000
+          # CapPrm: 0000000000000000
+          # CapEff: 0000000000000000
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "64Mi"
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+
+    # ─── Container 2: With NET_BIND_SERVICE (web server pattern) ────
+    - name: net-bind-only
+      image: alpine:3.18
+      command: ["sleep", "3600"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+          add:
+            # Cho phép bind port < 1024 (e.g., port 80, 443)
+            # Thay vì chạy app với root user
+            - NET_BIND_SERVICE
+          # NOTE: Trong môi trường hiện đại, dùng port >= 1024 tốt hơn
+          # CAP_NET_BIND_SERVICE là exception, không phải rule
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "64Mi"
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+
+  volumes:
+    - name: tmp
+      emptyDir:
+        medium: Memory
+        sizeLimit: "16Mi"
+
+  hostNetwork: false
+  hostPID: false
+  hostIPC: false
+  restartPolicy: Never

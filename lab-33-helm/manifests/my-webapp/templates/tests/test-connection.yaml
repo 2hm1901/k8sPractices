@@ -1,0 +1,57 @@
+# =============================================================================
+# Helm Test: Verifies the deployment is working correctly
+# Run with: helm test <release-name> -n <namespace> --logs
+# =============================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "my-webapp.fullname" . }}-test-connection"
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "my-webapp.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    # This annotation marks the Pod as a Helm test
+    "helm.sh/hook": test
+    # Keep failed tests for debugging (remove after resolving)
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  restartPolicy: Never
+  containers:
+    # Test 1: HTTP connectivity test
+    - name: http-connectivity
+      image: curlimages/curl:8.4.0
+      imagePullPolicy: IfNotPresent
+      command:
+        - sh
+        - -c
+        - |
+          echo "=== Testing HTTP connectivity to {{ include "my-webapp.fullname" . }}:{{ .Values.service.port }} ==="
+          
+          # Test basic connectivity
+          curl -sf --connect-timeout 10 --max-time 30 \
+            http://{{ include "my-webapp.fullname" . }}:{{ .Values.service.port }}/ \
+            && echo "✅ HTTP connectivity test PASSED" \
+            || { echo "❌ HTTP connectivity test FAILED"; exit 1; }
+          
+          # Test health endpoint
+          curl -sf --connect-timeout 10 --max-time 30 \
+            http://{{ include "my-webapp.fullname" . }}:{{ .Values.service.port }}/health \
+            && echo "✅ Health endpoint test PASSED" \
+            || echo "⚠️  Health endpoint not available (may not be implemented)"
+          
+          echo "=== All tests completed ==="
+      resources:
+        requests:
+          cpu: 50m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        runAsUser: 65534  # nobody user
+        capabilities:
+          drop: [ALL]

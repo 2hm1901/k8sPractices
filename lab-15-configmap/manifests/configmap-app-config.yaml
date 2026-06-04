@@ -1,0 +1,67 @@
+# =============================================================================
+# ConfigMap: Application Configuration
+# Lab 15 — ConfigMap
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: configmap-app-config
+  namespace: lab15
+  labels:
+    app: webapp
+    env: production
+    lab: "15"
+  annotations:
+    description: "Main application configuration for webapp"
+data:
+  # ── Simple key-value pairs ──────────────────────────────────────────────────
+  APP_ENV: "production"
+  APP_PORT: "8080"
+  APP_DEBUG: "false"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+
+  # ── Database connection (non-sensitive) ─────────────────────────────────────
+  DB_HOST: "postgres-service"
+  DB_PORT: "5432"
+  DB_NAME: "webapp_prod"
+  DB_POOL_SIZE: "10"
+  DB_MAX_IDLE: "5"
+  DB_CONN_TIMEOUT: "30s"
+
+  # ── Cache configuration ─────────────────────────────────────────────────────
+  CACHE_HOST: "redis-service"
+  CACHE_PORT: "6379"
+  CACHE_TTL: "3600"
+  CACHE_PREFIX: "webapp:"
+
+  # ── Feature flags ───────────────────────────────────────────────────────────
+  FEATURE_NEW_UI: "true"
+  FEATURE_DARK_MODE: "true"
+  FEATURE_BETA: "false"
+
+  # ── Multi-line value: application.properties file ───────────────────────────
+  application.properties: |
+    spring.application.name=webapp
+    spring.datasource.url=jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}
+    spring.datasource.driver-class-name=org.postgresql.Driver
+    spring.jpa.hibernate.ddl-auto=validate
+    spring.jpa.show-sql=false
+    spring.cache.type=redis
+    spring.data.redis.host=${CACHE_HOST}
+    spring.data.redis.port=${CACHE_PORT}
+    server.port=${APP_PORT}
+    management.endpoints.web.exposure.include=health,info,metrics
+    management.endpoint.health.show-details=when-authorized
+    logging.level.root=INFO
+    logging.pattern.console=%d{ISO8601} %-5level %logger{36} - %msg%n
+
+  # ── JSON config ─────────────────────────────────────────────────────────────
+  feature-flags.json: |
+    {
+      "newUI": true,
+      "darkMode": true,
+      "betaFeature": false,
+      "maintenanceMode": false,
+      "maxUploadSizeMB": 50
+    }

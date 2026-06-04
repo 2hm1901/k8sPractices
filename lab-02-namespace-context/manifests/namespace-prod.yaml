@@ -1,0 +1,72 @@
+# Namespace: prod (Production Environment)
+# Môi trường production - cần nghiêm ngặt về resource management
+# Quota lớn nhưng có LimitRange để enforce best practices
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: prod
+  labels:
+    environment: production
+    team: platform
+    managed-by: kubectl
+    cost-center: engineering
+    # Label này giúp NetworkPolicy nhận dạng production namespace
+    tier: "production"
+  annotations:
+    description: "Production environment - handle with care!"
+    owner: "sre-team@company.com"
+    created-by: "lab-02-namespace-context"
+    # Annotation cảnh báo cho operators
+    warning: "PRODUCTION - Changes require Change Request approval"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: prod-quota
+  namespace: prod
+spec:
+  hard:
+    requests.cpu: "16"
+    requests.memory: 32Gi
+    limits.cpu: "32"
+    limits.memory: 64Gi
+    pods: "100"
+    services: "50"
+    secrets: "100"
+    configmaps: "100"
+    persistentvolumeclaims: "50"
+    # Giới hạn số lượng LoadBalancer services (tốn tiền trên cloud)
+    services.loadbalancers: "5"
+    services.nodeports: "10"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: prod-limitrange
+  namespace: prod
+spec:
+  limits:
+  - type: Container
+    # Prod: containers PHẢI khai báo limits (không có default quá cao)
+    default:
+      cpu: "500m"
+      memory: "512Mi"
+    defaultRequest:
+      cpu: "250m"
+      memory: "256Mi"
+    max:
+      cpu: "4"
+      memory: "8Gi"
+    min:
+      cpu: "100m"       # Prod requires minimum resources
+      memory: "128Mi"
+  - type: Pod
+    max:
+      cpu: "8"
+      memory: "16Gi"
+  - type: PersistentVolumeClaim
+    max:
+      storage: "100Gi"
+    min:
+      storage: "1Gi"

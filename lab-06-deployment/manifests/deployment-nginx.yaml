@@ -1,0 +1,119 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  namespace: lab06
+  labels:
+    app: nginx
+    version: "1.21"
+  # Annotation để ghi lý do thay đổi (hiển thị trong rollout history)
+  annotations:
+    kubernetes.io/change-cause: "Initial deployment with nginx:1.21"
+spec:
+  # Số lượng replicas mong muốn
+  replicas: 3
+
+  # Giữ tối đa 5 revision history (ReplicaSets cũ)
+  revisionHistoryLimit: 5
+
+  # Chờ ít nhất 10s sau khi pod Ready trước khi coi là "available"
+  minReadySeconds: 10
+
+  # Selector để Deployment tìm Pods thuộc về mình
+  selector:
+    matchLabels:
+      app: nginx
+
+  # ===== Update Strategy =====
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # maxSurge: Số pod THÊM cho phép trong quá trình update
+      # Ví dụ: replicas=3, maxSurge=1 → tối đa 4 pods tồn tại cùng lúc
+      maxSurge: 1
+
+      # maxUnavailable: Số pod ĐƯỢC PHÉP unavailable trong quá trình update
+      # 0 → không cho phép downtime (zero-downtime deployment)
+      maxUnavailable: 0
+
+  # Template để tạo Pods
+  template:
+    metadata:
+      labels:
+        app: nginx
+        version: "1.21"
+      # Annotations cho Pods (optional)
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "80"
+    spec:
+      containers:
+      - name: nginx
+        # Version 1 — sẽ được update lên 1.22 trong bước tiếp theo
+        image: nginx:1.21-alpine
+        ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+
+        # Environment variables
+        env:
+        - name: APP_VERSION
+          value: "v1"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+
+        # Resource management (best practice)
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+
+        # Readiness Probe — Pod sẵn sàng nhận traffic chưa?
+        # Quan trọng cho Rolling Update: pod mới phải Ready trước khi pod cũ bị terminate
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+
+        # Liveness Probe — Container có còn hoạt động không?
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          failureThreshold: 3
+
+        # Lifecycle hooks
+        lifecycle:
+          # Chạy trước khi container dừng — cho phép drain connections
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 5"]
+
+      # Graceful shutdown: 30 giây để pod hoàn thành requests đang xử lý
+      terminationGracePeriodSeconds: 30
+
+      # Đảm bảo pods phân tán trên các nodes khác nhau
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - nginx
+              topologyKey: kubernetes.io/hostname

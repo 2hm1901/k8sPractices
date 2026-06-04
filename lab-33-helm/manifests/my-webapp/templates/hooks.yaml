@@ -1,0 +1,113 @@
+{{- if .Values.hooks.preInstall.enabled }}
+# =============================================================================
+# Pre-install Hook: Runs BEFORE any resources are created
+# Use case: database schema migrations, seed data, pre-flight checks
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "my-webapp.fullname" . }}-pre-install
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "my-webapp.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pre-install-hook
+  annotations:
+    # This annotation makes it a Helm hook
+    "helm.sh/hook": pre-install,pre-upgrade
+    # Weight: lower number = runs first (multiple hooks)
+    "helm.sh/hook-weight": "-5"
+    # Delete the job after it succeeds (keeps cluster clean)
+    # Options: hook-succeeded | hook-failed | before-hook-creation
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  # Fail after 3 retries
+  backoffLimit: 3
+  # Auto-cleanup job after 1 hour
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "my-webapp.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: pre-install-hook
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "my-webapp.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: pre-install
+          image: {{ .Values.hooks.preInstall.image }}
+          imagePullPolicy: IfNotPresent
+          command:
+            {{- toYaml .Values.hooks.preInstall.command | nindent 12 }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+{{- end }}
+---
+# =============================================================================
+# Post-install Hook: Runs AFTER all resources are created and ready
+# Use case: send Slack notification, warm up cache, smoke test
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "my-webapp.fullname" . }}-post-install
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "my-webapp.labels" . | nindent 4 }}
+    app.kubernetes.io/component: post-install-hook
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "my-webapp.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: post-install-notifier
+          image: curlimages/curl:8.4.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              echo "=== Post-install hook: verifying deployment ==="
+              echo "Release: {{ .Release.Name }}"
+              echo "Namespace: {{ .Release.Namespace }}"
+              echo "Chart: {{ .Chart.Name }}-{{ .Chart.Version }}"
+              # Wait for service to be ready
+              sleep 5
+              # Verify service is accessible
+              curl -sf http://{{ include "my-webapp.fullname" . }}:{{ .Values.service.port }}/health \
+                && echo "Health check PASSED" \
+                || echo "Health check FAILED (may need more time to start)"
+              echo "=== Post-install complete ==="
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]

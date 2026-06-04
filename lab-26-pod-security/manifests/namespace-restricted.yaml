@@ -1,0 +1,61 @@
+---
+# Namespace: restricted-ns
+# Cấu hình với Pod Security Admission (PSA) ở mức Restricted
+#
+# PSA Modes:
+# - enforce: Từ chối pods vi phạm
+# - audit:   Ghi log vi phạm vào audit log, nhưng cho phép pod
+# - warn:    Trả về warning cho user, nhưng cho phép pod
+#
+# PSS Levels:
+# - privileged: Không giới hạn
+# - baseline:   Giới hạn tối thiểu
+# - restricted: Hạn chế tối đa
+#
+# Version: Phiên bản PSS spec (latest, v1.28, v1.29, ...)
+# Dùng specific version để tránh breaking changes khi upgrade K8s
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: restricted-ns
+  labels:
+    # ✅ ENFORCE: Từ chối pods vi phạm ngay lập tức
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+
+    # ✅ AUDIT: Ghi log vi phạm (cho observability)
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+
+    # ✅ WARN: Cảnh báo cho user khi apply (giúp developers biết issue)
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+
+    # Thêm labels để track
+    environment: lab
+    security-level: restricted
+  annotations:
+    description: "Namespace enforcing Restricted Pod Security Standards"
+    contact: "platform-team@company.com"
+
+---
+# Namespace: baseline-ns
+# Cấu hình với Baseline PSS — phù hợp cho legacy apps
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: baseline-ns
+  labels:
+    # Enforce Baseline — cho phép nhiều workloads hơn Restricted
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+
+    # Warn về Restricted để biết những gì cần cải thiện
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+
+    environment: lab
+    security-level: baseline
+  annotations:
+    description: "Namespace enforcing Baseline Pod Security Standards"
+    upgrade-plan: "Target: migrate to restricted by Q4"

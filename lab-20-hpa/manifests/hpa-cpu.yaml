@@ -1,0 +1,68 @@
+# =============================================================================
+# Lab 20 — HPA dựa trên CPU (HPA v2 API)
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: php-apache-hpa
+  labels:
+    lab: "20"
+    type: cpu-based
+spec:
+  # Target: HPA sẽ scale resource này
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: php-apache
+
+  # Giới hạn số replicas
+  minReplicas: 1    # Tối thiểu 1 replica (không bao giờ scale về 0)
+  maxReplicas: 10   # Tối đa 10 replicas
+
+  metrics:
+  # Metric 1: CPU Utilization (resource metric)
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        # Khi CPU usage vượt 50% của requests → scale up
+        # Công thức: desiredReplicas = ceil(currentReplicas × currentCPU/50)
+        averageUtilization: 50
+
+  # Metric 2: Memory (cũng có thể add cùng lúc với CPU)
+  # HPA sẽ chọn số replicas LỚN NHẤT từ tất cả metrics
+  # Uncomment để dùng multi-metric:
+  # - type: Resource
+  #   resource:
+  #     name: memory
+  #     target:
+  #       type: AverageValue
+  #       averageValue: 100Mi
+
+  # Scale Behavior: Kiểm soát tốc độ scale up/down
+  behavior:
+    scaleUp:
+      # Không chờ trước khi scale up (urgent response)
+      stabilizationWindowSeconds: 0
+      policies:
+      # Policy 1: Tăng tối đa 100% số pods mỗi 15 giây
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+      # Policy 2: Hoặc tăng tối đa 4 pods mỗi 15 giây
+      - type: Pods
+        value: 4
+        periodSeconds: 15
+      # Chọn policy cho phép scale NHIỀU hơn
+      selectPolicy: Max
+
+    scaleDown:
+      # Chờ 5 phút trước khi scale down để tránh flapping
+      stabilizationWindowSeconds: 300
+      policies:
+      # Giảm tối đa 1 pod mỗi phút (conservative)
+      - type: Pods
+        value: 1
+        periodSeconds: 60
+      selectPolicy: Min  # Chọn policy scale down ÍT nhất (an toàn hơn)

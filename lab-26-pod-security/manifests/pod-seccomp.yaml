@@ -1,0 +1,104 @@
+---
+# Pod: seccomp-pod
+# Demonstrates Seccomp (Secure Computing Mode) profiles
+#
+# Seccomp lọc system calls mà container có thể thực hiện.
+# Mục tiêu: giảm attack surface bằng cách chặn syscalls không cần thiết
+#
+# Có 3 loại Seccomp profiles:
+# 1. Unconfined    — Không có giới hạn (mặc định nếu không set)
+# 2. RuntimeDefault — Profile mặc định của container runtime (containerd/docker)
+# 3. Localhost      — Custom profile từ file JSON trên node
+#
+# RuntimeDefault profile chặn ~300+ syscalls nguy hiểm như:
+# - reboot, kexec_load (hệ thống)
+# - ptrace (debugging processes khác)
+# - perf_event_open (side-channel attacks)
+# - nfsservctl, get_kernel_syms (kernel operations)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: seccomp-pod
+  labels:
+    app: seccomp-demo
+  annotations:
+    description: "Demonstrates Seccomp profile usage — RuntimeDefault and custom"
+spec:
+  # ─── Pod-level Seccomp ─────────────────────────────────────
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534      # nobody user
+    runAsGroup: 65534
+    # ✅ RuntimeDefault: dùng seccomp profile của container runtime
+    # Đây là cách đơn giản nhất để bật seccomp
+    seccompProfile:
+      type: RuntimeDefault
+
+    # Thay thế: Dùng custom profile từ node
+    # (File phải tồn tại trên node tại /var/lib/kubelet/seccomp/profiles/custom.json)
+    # seccompProfile:
+    #   type: Localhost
+    #   localhostProfile: profiles/custom.json
+
+  containers:
+    - name: app
+      image: alpine:3.18
+      command: ["sh", "-c", "echo 'Seccomp is active'; sleep 3600"]
+
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+
+        # Container có thể override pod-level seccomp
+        # seccompProfile:
+        #   type: RuntimeDefault
+
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "64Mi"
+
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+
+  volumes:
+    - name: tmp
+      emptyDir:
+        medium: Memory
+        sizeLimit: "16Mi"
+
+  restartPolicy: Never
+
+# ─────────────────────────────────────────────────────────────────
+# BONUS: Custom Seccomp Profile Structure (JSON format)
+# Lưu file này vào: /var/lib/kubelet/seccomp/profiles/app-profile.json
+# trên mỗi node
+# ─────────────────────────────────────────────────────────────────
+#
+# {
+#   "defaultAction": "SCMP_ACT_ERRNO",   // Block everything by default
+#   "architectures": ["SCMP_ARCH_X86_64"],
+#   "syscalls": [
+#     {
+#       "names": [
+#         "accept", "accept4", "access", "arch_prctl",
+#         "bind", "brk", "close", "connect",
+#         "epoll_create", "epoll_ctl", "epoll_wait",
+#         "exit", "exit_group",
+#         "fcntl", "fstat", "futex",
+#         "getdents64", "getpid", "getuid", "geteuid",
+#         "listen", "lstat", "mmap", "mprotect", "munmap",
+#         "nanosleep", "open", "openat",
+#         "read", "recvfrom", "sendto", "setuid",
+#         "socket", "stat", "write"
+#       ],
+#       "action": "SCMP_ACT_ALLOW"       // Allow specific syscalls
+#     }
+#   ]
+# }

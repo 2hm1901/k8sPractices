@@ -1,0 +1,124 @@
+# =============================================================================
+# Lab 21 — VPA Demo: Deployment ứng dụng cần tối ưu resources
+# App này có resource requests không chính xác → VPA sẽ recommend tốt hơn
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vpa-demo
+  labels:
+    app: vpa-demo
+    lab: "21"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vpa-demo
+  template:
+    metadata:
+      labels:
+        app: vpa-demo
+    spec:
+      containers:
+      - name: demo-app
+        image: nginx:1.25-alpine
+        ports:
+        - containerPort: 80
+          name: http
+        resources:
+          requests:
+            # ⚠️ Intentionally WRONG values để VPA có thể recommend tốt hơn
+            # CPU quá thấp → app sẽ bị throttled
+            cpu: 50m      # Thực tế cần ~100-200m
+            # Memory quá cao → wasteful
+            memory: 256Mi  # Thực tế chỉ cần ~32-64Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+        # Tạo load nhân tạo để có CPU usage thực tế
+        lifecycle:
+          postStart:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - |
+                # Stress test nhẹ để tạo metrics cho VPA Recommender
+                (while true; do
+                  for i in $(seq 1 1000); do echo "x" > /dev/null; done
+                  sleep 1
+                done) &
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+# Service cho vpa-demo
+apiVersion: v1
+kind: Service
+metadata:
+  name: vpa-demo-svc
+  labels:
+    app: vpa-demo
+    lab: "21"
+spec:
+  selector:
+    app: vpa-demo
+  ports:
+  - port: 80
+    targetPort: 80
+  type: ClusterIP
+---
+# =============================================================================
+# Multi-container deployment để test VPA với nhiều containers
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vpa-multi
+  labels:
+    app: vpa-multi
+    lab: "21"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vpa-multi
+  template:
+    metadata:
+      labels:
+        app: vpa-multi
+    spec:
+      containers:
+      # Container chính
+      - name: app
+        image: nginx:1.25-alpine
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: 200m   # Quá cao cho nginx đơn giản
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      # Sidecar container (log collector)
+      - name: log-sidecar
+        image: busybox:1.36
+        command:
+        - /bin/sh
+        - -c
+        - |
+          while true; do
+            echo "$(date): collecting logs..."
+            sleep 10
+          done
+        resources:
+          requests:
+            cpu: 100m   # Quá cao cho sidecar đơn giản
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi

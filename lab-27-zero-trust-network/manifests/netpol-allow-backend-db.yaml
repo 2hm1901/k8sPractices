@@ -1,0 +1,106 @@
+---
+# NetworkPolicy: allow-backend-to-db
+# STEP 4: Cho phép Backend pods giao tiếp với Database
+#
+# Luồng: [Backend] → [Database :5432]
+# Database KHÔNG cho phép Frontend kết nối trực tiếp!
+#
+# Pattern này là core của zero-trust:
+# Frontend không biết/không thể reach Database
+# Chỉ Backend mới có thể query Database
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-db-ingress
+  namespace: three-tier-app
+  annotations:
+    description: "STEP 4a: Allow database to receive connections from backend only"
+    apply-order: "4"
+spec:
+  # Policy áp dụng cho DATABASE pods
+  podSelector:
+    matchLabels:
+      app: database
+  policyTypes:
+    - Ingress
+  ingress:
+    # CHỈ cho phép từ backend pods
+    # Frontend không thể kết nối trực tiếp database
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - protocol: TCP
+          port: 5432   # PostgreSQL port
+
+---
+# NetworkPolicy: allow-backend-egress-to-db
+# Backend cần egress để reach database
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-egress
+  namespace: three-tier-app
+  annotations:
+    description: "STEP 4b: Allow backend egress to database + external APIs"
+    apply-order: "4"
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Egress
+  egress:
+    # Allow đến Database
+    - to:
+        - podSelector:
+            matchLabels:
+              app: database
+      ports:
+        - protocol: TCP
+          port: 5432
+
+    # Allow đến Cache (Redis) nếu có
+    - to:
+        - podSelector:
+            matchLabels:
+              app: cache
+      ports:
+        - protocol: TCP
+          port: 6379   # Redis port
+
+    # Allow egress ra external APIs với specific CIDRs
+    # Ví dụ: payment gateway, third-party APIs
+    # ⚠️ KHÔNG dùng 0.0.0.0/0 (cho phép tất cả internet)
+    - to:
+        - ipBlock:
+            # Cho phép dải IP cụ thể (ví dụ: Stripe API servers)
+            cidr: 54.187.174.169/32
+      ports:
+        - protocol: TCP
+          port: 443
+
+    # Exclude internal RFC1918 ranges nếu cần
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8      # Internal cluster network
+              - 172.16.0.0/12   # Docker default bridge
+              - 192.168.0.0/16  # Private network
+      ports:
+        - protocol: TCP
+          port: 443    # HTTPS only
+
+---
+# NetworkPolicy: deny-frontend-to-db (Explicit Deny — best practice)
+# Explicitly deny Frontend → Database để tăng clarity
+# (Thực ra đã bị chặn bởi default-deny + không có allow rule,
+#  nhưng explicit deny giúp audit và documentation)
+# NOTE: NetworkPolicy không có explicit deny concept;
+# Việc không có allow rule = deny.
+# Dưới đây là comment để document intent:
+#
+# Frontend pods (app=frontend) KHÔNG CÓ QUYỀN kết nối Database (app=database)
+# vì không có NetworkPolicy nào allow điều đó.

@@ -1,0 +1,24 @@
+# manifests/netpol-deny-all.yaml
+# Default Deny All NetworkPolicy
+# Đây là bước đầu tiên trong mô hình Zero-Trust
+# Apply cho TẤT CẢ pods trong namespace (podSelector: {})
+# Block cả Ingress VÀ Egress
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all
+  labels:
+    policy-type: baseline
+    security: zero-trust
+spec:
+  # Empty podSelector = chọn TẤT CẢ pods trong namespace
+  podSelector: {}
+
+  # Block cả ingress lẫn egress
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # Không có rules ingress/egress = deny tất cả
+  # (khác với không có policyTypes = không apply gì cả)

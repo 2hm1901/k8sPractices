@@ -1,0 +1,46 @@
+apiVersion: v2
+name: my-webapp
+description: |
+  A production-ready Helm chart for a generic web application.
+  Supports Deployment, Service, Ingress, HPA, ConfigMap, and pre-install hooks.
+type: application
+
+# Chart version: bump this when chart structure changes
+version: 1.0.0
+
+# App version: the version of the application being deployed
+appVersion: "1.0.0"
+
+keywords:
+  - webapp
+  - nginx
+  - production
+
+home: https://github.com/myorg/my-webapp
+
+maintainers:
+  - name: Platform Team
+    email: platform@myorg.com
+
+icon: https://example.com/icon.png
+
+annotations:
+  # Artifact Hub metadata
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/prerelease: "false"
+
+# Dependency charts (sub-charts)
+# Run: helm dependency update
+dependencies:
+  - name: postgresql
+    version: "12.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled    # Only enabled if postgresql.enabled=true in values
+    tags:
+      - database
+  - name: redis
+    version: "17.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled
+    tags:
+      - cache

@@ -1,0 +1,70 @@
+# =============================================================================
+# Lab 20 — HPA Demo: PHP-Apache Deployment + Service
+# Classic HPA demo từ official Kubernetes docs
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: php-apache
+  labels:
+    app: php-apache
+    lab: "20"
+    component: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: php-apache
+  template:
+    metadata:
+      labels:
+        app: php-apache
+    spec:
+      containers:
+      - name: php-apache
+        # Image chạy PHP server trả về "OK!" khi nhận request
+        # Source: k8s.gcr.io/hpa-example
+        image: registry.k8s.io/hpa-example
+        ports:
+        - containerPort: 80
+          name: http
+        resources:
+          requests:
+            # ⚠️ QUAN TRỌNG: HPA dựa trên requests để tính %
+            # Nếu không set requests, HPA sẽ không hoạt động
+            cpu: 200m       # 0.2 CPU core
+            memory: 64Mi
+          limits:
+            cpu: 500m       # 0.5 CPU core max
+            memory: 128Mi
+        # Health checks để Kubernetes biết pod có sẵn sàng nhận traffic
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 15
+          periodSeconds: 20
+---
+# Service expose ứng dụng để load generator có thể gọi
+apiVersion: v1
+kind: Service
+metadata:
+  name: php-apache
+  labels:
+    app: php-apache
+    lab: "20"
+spec:
+  selector:
+    app: php-apache
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    protocol: TCP
+  type: ClusterIP

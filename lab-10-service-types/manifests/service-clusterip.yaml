@@ -1,0 +1,28 @@
+# manifests/service-clusterip.yaml
+# ClusterIP Service - Chỉ accessible trong cluster
+# Đây là loại Service mặc định trong Kubernetes
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-clusterip
+  labels:
+    app: demo-app
+    service-type: clusterip
+spec:
+  # ClusterIP là mặc định, có thể bỏ qua dòng này
+  type: ClusterIP
+
+  # Chọn pods với label app=demo-app
+  selector:
+    app: demo-app
+
+  ports:
+    - name: http
+      port: 80          # Port mà service expose ra trong cluster
+      targetPort: 8080  # Port thực tế trên Pod container
+      protocol: TCP
+
+  # Tùy chọn: set ClusterIP cụ thể (trong range của cluster)
+  # clusterIP: 10.96.100.100
+  # Hoặc để K8s tự cấp phát (để trống)

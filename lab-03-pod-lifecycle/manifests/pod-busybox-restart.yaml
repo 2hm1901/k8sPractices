@@ -1,0 +1,153 @@
+# Pod Manifest: pod-busybox-restart
+# Mục đích: Demo các Restart Policies và quan sát behaviour
+#
+# File này chứa 2 pods để so sánh:
+# 1. busybox-onfailure: restartPolicy=OnFailure, sẽ fail và restart
+# 2. busybox-completed: restartPolicy=OnFailure, sẽ success (Completed)
+#
+# Usage:
+#   kubectl apply -f pod-busybox-restart.yaml -n dev
+#   kubectl get pods -n dev -w    # Watch restart behaviour
+#   kubectl describe pod busybox-onfailure -n dev
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pod 1: restartPolicy=OnFailure
+# Container sẽ exit với code 1 (failure) -> Kubernetes sẽ restart
+# Lưu ý: Restart delay tăng theo exponential backoff:
+#   1st: 10s, 2nd: 20s, 3rd: 40s, ... max: 5 phút
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Pod
+metadata:
+  name: busybox-onfailure
+  namespace: dev
+  labels:
+    app: busybox-demo
+    restart-policy: on-failure
+  annotations:
+    description: "Demo OnFailure restart policy - will restart on non-zero exit"
+spec:
+  # OnFailure: Restart ONLY when container exits with non-zero code
+  # Use case: Batch jobs, cron-like tasks that might fail and need retry
+  restartPolicy: OnFailure
+
+  containers:
+  - name: failing-task
+    image: busybox:1.36
+    imagePullPolicy: IfNotPresent
+
+    # Command: simulate a task that fails after some work
+    command:
+    - sh
+    - -c
+    - |
+      echo "=== Task Starting ==="
+      echo "Current time: $(date)"
+      echo "Doing some work..."
+      sleep 5
+      echo "Simulating failure! (exit code 1)"
+      exit 1    # Non-zero exit code -> OnFailure policy will restart this
+
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "32Mi"
+      limits:
+        cpu: "100m"
+        memory: "64Mi"
+
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Pod 2: restartPolicy=OnFailure + success
+# Container sẽ exit 0 -> Completed, KHÔNG restart
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Pod
+metadata:
+  name: busybox-completed
+  namespace: dev
+  labels:
+    app: busybox-demo
+    restart-policy: on-failure
+  annotations:
+    description: "Demo OnFailure with successful completion - stays Completed"
+spec:
+  restartPolicy: OnFailure
+
+  containers:
+  - name: successful-task
+    image: busybox:1.36
+    imagePullPolicy: IfNotPresent
+
+    command:
+    - sh
+    - -c
+    - |
+      echo "=== Task Starting ==="
+      echo "Processing data..."
+      sleep 3
+      echo "Task completed successfully! (exit code 0)"
+      exit 0    # Zero exit code -> pod stays in Completed state (not restarted)
+
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "32Mi"
+      limits:
+        cpu: "100m"
+        memory: "64Mi"
+
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Pod 3: restartPolicy=Never + failure
+# Container sẽ fail -> Status = Error, KHÔNG restart
+# Use case: Ad-hoc tasks, debugging, one-time migrations
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Pod
+metadata:
+  name: busybox-never-restart
+  namespace: dev
+  labels:
+    app: busybox-demo
+    restart-policy: never
+  annotations:
+    description: "Demo Never restart policy - fails and stays Failed"
+spec:
+  # Never: NEVER restart regardless of exit code
+  # Useful for: one-time jobs, debugging, manual tasks
+  restartPolicy: Never
+
+  containers:
+  - name: one-shot-task
+    image: busybox:1.36
+    imagePullPolicy: IfNotPresent
+
+    command:
+    - sh
+    - -c
+    - |
+      echo "=== One-shot task ==="
+      echo "This will run once and never restart"
+      echo "Pod: $POD_NAME in namespace: $POD_NAMESPACE"
+      sleep 2
+      echo "Exiting with failure..."
+      exit 1    # Even with failure, restartPolicy=Never means no restart
+
+    env:
+    - name: POD_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.name
+    - name: POD_NAMESPACE
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.namespace
+
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "32Mi"
+      limits:
+        cpu: "100m"
+        memory: "64Mi"

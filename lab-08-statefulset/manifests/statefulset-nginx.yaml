@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nginx
+  namespace: lab08
+  labels:
+    app: nginx
+spec:
+  # ===== Tham chiếu đến Headless Service =====
+  # Service phải tồn tại trước khi tạo StatefulSet
+  serviceName: "nginx-headless"
+
+  # Số replicas
+  replicas: 3
+
+  # Tạo pods tuần tự (default: OrderedReady)
+  # Parallel: tạo/xoá tất cả cùng lúc (nếu không cần ordering)
+  podManagementPolicy: OrderedReady
+
+  # Update strategy
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # partition: N → Chỉ update pods có ordinal >= N
+      # Dùng để canary update: update pod-2 trước, kiểm tra, rồi update tiếp
+      partition: 0
+
+  selector:
+    matchLabels:
+      app: nginx
+
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      # Init container để setup custom index.html với pod identity
+      initContainers:
+      - name: setup
+        image: busybox:1.35
+        command:
+        - sh
+        - -c
+        - |
+          # Tạo file HTML với thông tin pod identity
+          cat > /work-dir/index.html <<EOF
+          <!DOCTYPE html>
+          <html>
+          <body>
+            <h1>Pod: $(hostname)</h1>
+            <p>This is a StatefulSet pod with stable identity.</p>
+            <p>Hostname: $(hostname)</p>
+            <p>Date: $(date)</p>
+          </body>
+          </html>
+          EOF
+          echo "Init complete for $(hostname)"
+        volumeMounts:
+        - name: www
+          mountPath: /work-dir
+
+      containers:
+      - name: nginx
+        image: nginx:1.21-alpine
+        ports:
+        - containerPort: 80
+          name: http
+
+        # Env để biết pod đang chạy tại vị trí nào
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "100m"
+            memory: "128Mi"
+
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 10
+
+        volumeMounts:
+        # Mount PVC vào /usr/share/nginx/html
+        # Mỗi pod có PVC riêng tên: www-nginx-0, www-nginx-1, www-nginx-2
+        - name: www
+          mountPath: /usr/share/nginx/html
+
+      terminationGracePeriodSeconds: 10
+
+  # ===== volumeClaimTemplates =====
+  # Kubernetes tự động tạo PVC cho mỗi pod
+  # Tên PVC: {volumeClaimTemplate.name}-{statefulset.name}-{ordinal}
+  # Ví dụ: www-nginx-0, www-nginx-1, www-nginx-2
+  volumeClaimTemplates:
+  - metadata:
+      name: www    # ← Prefix của PVC name
+      labels:
+        app: nginx
+    spec:
+      accessModes:
+      - ReadWriteOnce     # Chỉ mount được bởi 1 node tại một thời điểm
+      # storageClassName: standard  # Uncomment và thay bằng StorageClass phù hợp
+      resources:
+        requests:
+          storage: 1Gi

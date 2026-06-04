@@ -1,0 +1,67 @@
+# Headless Service cho StatefulSet nginx
+# ClusterIP: None → DNS trả về IP của từng pod thay vì Virtual IP
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-headless
+  namespace: lab08
+  labels:
+    app: nginx
+    service-type: headless
+spec:
+  # ===== KEY: ClusterIP: None = Headless Service =====
+  clusterIP: None
+
+  # Chỉ include pods đang Ready vào DNS records
+  publishNotReadyAddresses: false
+
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    protocol: TCP
+
+  # Selector phải match với StatefulSet pods
+  selector:
+    app: nginx
+
+---
+# Service thông thường (ClusterIP) để access nginx từ bên ngoài cluster
+# Dùng song song với Headless Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-public
+  namespace: lab08
+  labels:
+    app: nginx
+    service-type: public
+spec:
+  type: ClusterIP
+  # KHÔNG phải headless — có Virtual IP để load balance
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+  selector:
+    app: nginx
+
+---
+# Headless Service cho MySQL StatefulSet
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-headless
+  namespace: lab08
+  labels:
+    app: mysql
+spec:
+  clusterIP: None
+  # publishNotReadyAddresses: true nếu muốn các pods chưa ready cũng có DNS
+  publishNotReadyAddresses: true
+  ports:
+  - name: mysql
+    port: 3306
+    targetPort: 3306
+  selector:
+    app: mysql
