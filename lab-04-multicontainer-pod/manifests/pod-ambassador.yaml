@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ambassador-pod
+  labels:
+    app: ambassador-demo
+spec:
+  containers:
+  # Main application - connects to localhost:6379 (as if Redis is local)
+  - name: main-app
+    image: busybox:1.36
+    command: ["/bin/sh", "-c"]
+    args:
+    - |
+      echo "Main app starting..."
+      echo "Connecting to Redis via ambassador on localhost:6379"
+      while true; do
+        echo "$(date): Sending data to localhost:6379 (ambassador will forward to real Redis)"
+        sleep 5
+      done
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "32Mi"
+      limits:
+        cpu: "100m"
+        memory: "64Mi"
+
+  # Ambassador container - acts as a proxy/adapter for external connections
+  # In real world: this would be envoy, haproxy, or a connection pooler (PgBouncer, Twemproxy)
+  - name: db-proxy
+    image: busybox:1.36
+    command: ["/bin/sh", "-c"]
+    args:
+    - |
+      echo "Ambassador/Proxy starting..."
+      echo "Listening on localhost:6379"
+      echo "Will forward connections to redis.prod-cluster.svc.cluster.local:6379"
+      echo "Benefits: connection pooling, retry logic, circuit breaking"
+      while true; do
+        echo "$(date): Ambassador proxy is healthy - forwarding traffic"
+        sleep 10
+      done
+    resources:
+      requests:
+        cpu: "10m"
+        memory: "16Mi"
+      limits:
+        cpu: "50m"
+        memory: "32Mi"
+
+  restartPolicy: Always

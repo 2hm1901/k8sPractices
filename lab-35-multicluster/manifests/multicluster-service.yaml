@@ -1,0 +1,10 @@
+# Multi-cluster Service — ServiceExport (using Submariner or MCS API)
+# Requires: Multi-cluster Service API (MCS) or Submariner installed
+apiVersion: multicluster.x-k8s.io/v1alpha1
+kind: ServiceExport
+metadata:
+  name: my-webapp
+  namespace: default
+  annotations:
+    # Export service to all clusters in the ClusterSet
+    multicluster.kubernetes.io/export: "true"

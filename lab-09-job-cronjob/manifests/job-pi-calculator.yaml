@@ -1,0 +1,33 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pi-calculator
+  labels:
+    app: pi-calculator
+spec:
+  # Số lần hoàn thành mong muốn
+  completions: 1
+  # Số Pod chạy song song
+  parallelism: 1
+  # Retry nếu thất bại
+  backoffLimit: 4
+  # Timeout toàn bộ job (giây)
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        job-name: pi-calculator
+    spec:
+      containers:
+      - name: pi
+        image: perl:5.34
+        command: ["perl", "-Mbignum=bpi", "-wle", "print bpi(2000)"]
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "64Mi"
+          limits:
+            cpu: "500m"
+            memory: "128Mi"
+      # Job pods MUST use restartPolicy Never or OnFailure (NOT Always)
+      restartPolicy: Never

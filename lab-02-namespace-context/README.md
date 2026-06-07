@@ -191,13 +191,28 @@ Trong Kubernetes, service DNS follow format: `<service-name>.<namespace>.svc.clu
 kubectl expose pod nginx-dev --port=80 -n dev --name=nginx-svc
 
 # Từ pod trong namespace khác, có thể reach được via full DNS:
-kubectl run test-pod --image=busybox -it --rm -n staging \
+# ⚠️ QUAN TRỌNG: Luôn dùng --restart=Never khi chạy kubectl run -it --rm
+# Nếu thiếu --restart=Never → pod dùng restartPolicy: Always → sau khi
+# wget xong, container exit → kubelet restart lại → kubectl bị treo,
+# trông giống như "timeout" nhưng thực ra là vòng lặp restart vô tận.
+kubectl run test-pod \
+  --image=busybox:1.36 \
+  --restart=Never \
+  -it --rm \
+  -n staging \
   -- wget -qO- http://nginx-svc.dev.svc.cluster.local
 
 # Trong cùng namespace, chỉ cần tên ngắn:
-kubectl run test-pod --image=busybox -it --rm -n dev \
+kubectl run test-pod \
+  --image=busybox:1.36 \
+  --restart=Never \
+  -it --rm \
+  -n dev \
   -- wget -qO- http://nginx-svc
 ```
+
+> **📌 Rule nhớ mãi:** `kubectl run -it --rm` **= luôn phải có `--restart=Never`**
+> Không có nó → `restartPolicy: Always` → pod không bao giờ "Completed" → kubectl treo.
 
 ### Step 6: Quản lý Contexts với kubectl config
 
@@ -368,8 +383,12 @@ kubens
 # ✅ Phải hiển thị list namespaces với current namespace highlighted
 
 # 6. DNS cross-namespace
-kubectl run test --image=busybox -it --rm -n staging \
-  --restart=Never -- nslookup nginx-svc.dev.svc.cluster.local
+kubectl run test \
+  --image=busybox:1.36 \
+  --restart=Never \
+  -it --rm \
+  -n staging \
+  -- nslookup nginx-svc.dev.svc.cluster.local
 # ✅ Phải resolve được IP address
 ```
 

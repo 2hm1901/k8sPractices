@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-with-toleration
+  labels:
+    app: toleration-demo
+spec:
+  # Pod này có thể chạy trên Node có taint: dedicated=gpu:NoSchedule
+  tolerations:
+  - key: "dedicated"
+    operator: "Equal"
+    value: "gpu"
+    effect: "NoSchedule"
+  # Cũng tolerate node với taint: node.kubernetes.io/not-ready
+  - key: "node.kubernetes.io/not-ready"
+    operator: "Exists"
+    effect: "NoExecute"
+    # Pod được ở lại 300 giây sau khi node not-ready
+    tolerationSeconds: 300
+  containers:
+  - name: app
+    image: nginx:1.25
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "64Mi"
+      limits:
+        cpu: "200m"
+        memory: "128Mi"

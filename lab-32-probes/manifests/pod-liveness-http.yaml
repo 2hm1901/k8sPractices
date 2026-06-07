@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: liveness-http-demo
+  labels:
+    app: liveness-demo
+spec:
+  containers:
+  - name: app
+    image: nginx:1.25
+    ports:
+    - containerPort: 80
+    livenessProbe:
+      httpGet:
+        path: /
+        port: 80
+        # Optional headers
+        # httpHeaders:
+        # - name: X-Health-Check
+        #   value: "true"
+      # Chờ 15 giây sau khi container start mới bắt đầu probe
+      initialDelaySeconds: 15
+      # Probe mỗi 10 giây
+      periodSeconds: 10
+      # Timeout sau 5 giây nếu không response
+      timeoutSeconds: 5
+      # Cần fail 3 lần liên tiếp mới tính là failed
+      failureThreshold: 3
+      # Cần success 1 lần để tính là recovered (liveness phải là 1)
+      successThreshold: 1
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "32Mi"
+      limits:
+        cpu: "100m"
+        memory: "64Mi"

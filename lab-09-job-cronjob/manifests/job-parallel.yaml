@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: parallel-job
+  labels:
+    app: parallel-job
+spec:
+  # Tổng số task cần hoàn thành
+  completions: 6
+  # Số Pod chạy đồng thời
+  parallelism: 2
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        job-name: parallel-job
+    spec:
+      containers:
+      - name: worker
+        image: busybox:1.36
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          POD_NAME=${HOSTNAME}
+          echo "Worker $POD_NAME starting task..."
+          # Simulate work (random 5-15 seconds)
+          WORK_TIME=$((RANDOM % 10 + 5))
+          echo "Processing for ${WORK_TIME} seconds..."
+          sleep $WORK_TIME
+          echo "Worker $POD_NAME completed task successfully!"
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "32Mi"
+          limits:
+            cpu: "100m"
+            memory: "64Mi"
+      restartPolicy: OnFailure

@@ -1,0 +1,11 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pdb-percentage
+spec:
+  # Luôn đảm bảo ít nhất 80% Pod đang chạy (với 5 replicas = ít nhất 4 Pod)
+  minAvailable: "80%"
+  # Hoặc dùng maxUnavailable: "20%" — chỉ cho phép tối đa 20% Pod down cùng lúc
+  selector:
+    matchLabels:
+      app: ha-app

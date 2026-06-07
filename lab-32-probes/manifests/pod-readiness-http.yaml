@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: readiness-demo
+  labels:
+    app: readiness-demo
+spec:
+  containers:
+  - name: app
+    image: busybox:1.36
+    command: ["/bin/sh", "-c"]
+    args:
+    - |
+      echo "App starting... warming up for 20 seconds"
+      sleep 20
+      echo "App ready! Starting HTTP server simulation"
+      # Create readiness file
+      touch /tmp/ready
+      while true; do
+        echo "$(date): serving requests"
+        sleep 5
+      done
+    readinessProbe:
+      exec:
+        command:
+        - cat
+        - /tmp/ready
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      failureThreshold: 3
+      # Readiness: cần 2 lần success mới ready (khác liveness)
+      successThreshold: 2
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "32Mi"

@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: slow-start-app
+  labels:
+    app: slow-start
+spec:
+  containers:
+  - name: app
+    image: busybox:1.36
+    command: ["/bin/sh", "-c"]
+    args:
+    - |
+      echo "App needs 45 seconds to initialize (loading models, connecting to DB...)"
+      sleep 45
+      echo "Initialization complete! App is ready."
+      touch /tmp/started
+      while true; do
+        echo "$(date): running"
+        sleep 10
+      done
+    # STARTUP PROBE: dành cho slow-start apps
+    # Tổng thời gian chờ = failureThreshold × periodSeconds = 30 × 10 = 300s = 5 phút
+    startupProbe:
+      exec:
+        command:
+        - cat
+        - /tmp/started
+      failureThreshold: 30
+      periodSeconds: 10
+    # Liveness probe chỉ active SAU KHI startupProbe thành công
+    livenessProbe:
+      exec:
+        command:
+        - cat
+        - /tmp/started
+      periodSeconds: 30
+      failureThreshold: 3
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "32Mi"

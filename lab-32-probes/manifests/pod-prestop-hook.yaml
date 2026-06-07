@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: prestop-demo
+  labels:
+    app: prestop-demo
+spec:
+  terminationGracePeriodSeconds: 30
+  containers:
+  - name: app
+    image: nginx:1.25
+    ports:
+    - containerPort: 80
+    lifecycle:
+      preStop:
+        exec:
+          # Sleep 10s để các request đang xử lý có thể hoàn thành
+          # THEN nginx gracefully quits
+          command: ["/bin/sh", "-c", "sleep 10 && nginx -s quit"]
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "32Mi"

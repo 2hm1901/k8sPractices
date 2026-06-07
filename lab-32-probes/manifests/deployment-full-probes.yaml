@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: full-probes-app
+  labels:
+    app: full-probes-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: full-probes-app
+  template:
+    metadata:
+      labels:
+        app: full-probes-app
+    spec:
+      # Graceful shutdown: tổng = terminationGracePeriodSeconds >= preStop time
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: app
+        image: nginx:1.25
+        ports:
+        - containerPort: 80
+        lifecycle:
+          preStop:
+            exec:
+              # Gracefully stop nginx before container is killed
+              command: ["/usr/sbin/nginx", "-s", "quit"]
+          # postStart runs immediately after container starts (not guaranteed before probes)
+          # postStart:
+          #   exec:
+          #     command: ["/bin/sh", "-c", "echo postStart hook"]
+        # STARTUP: App có 60s để khởi động trước khi liveness/readiness bắt đầu
+        startupProbe:
+          httpGet:
+            path: /
+            port: 80
+          failureThreshold: 6
+          periodSeconds: 10
+        # LIVENESS: Restart nếu nginx không response
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 0  # startupProbe handles delay
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 3
+        # READINESS: Chỉ nhận traffic khi nginx sẵn sàng
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 0
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+          successThreshold: 1
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "64Mi"
+          limits:
+            cpu: "200m"
+            memory: "128Mi"

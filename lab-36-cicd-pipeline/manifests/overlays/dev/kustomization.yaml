@@ -1,0 +1,44 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Kế thừa từ base
+bases:
+- ../../base
+
+namespace: my-app-dev
+
+namePrefix: dev-
+
+# Override replicas cho dev (chỉ 1 replica)
+replicas:
+- name: my-webapp
+  count: 1
+
+# Override image tag
+images:
+- name: nginx
+  newTag: "latest"
+
+# Thêm labels cho dev
+commonLabels:
+  environment: dev
+
+# Thêm config dev-specific
+patches:
+- patch: |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: my-webapp
+    spec:
+      template:
+        spec:
+          containers:
+          - name: app
+            resources:
+              requests:
+                cpu: "50m"
+                memory: "64Mi"
+              limits:
+                cpu: "200m"
+                memory: "128Mi"

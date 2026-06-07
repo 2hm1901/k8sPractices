@@ -1,0 +1,45 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: team-backend
+  namespace: argocd
+spec:
+  description: "Project cho Backend team"
+
+  # Cho phép deploy từ repos nào
+  sourceRepos:
+  - https://github.com/myorg/backend-*.git
+  - https://charts.helm.sh/stable
+
+  # Cho phép deploy đến clusters và namespaces nào
+  destinations:
+  - namespace: backend-*
+    server: https://kubernetes.default.svc
+  - namespace: monitoring
+    server: https://kubernetes.default.svc
+
+  # RBAC: roles trong project này
+  roles:
+  - name: developer
+    description: "Read-only access for developers"
+    policies:
+    - p, proj:team-backend:developer, applications, get, team-backend/*, allow
+    - p, proj:team-backend:developer, applications, sync, team-backend/*, allow
+    groups:
+    - backend-developers
+  - name: admin
+    description: "Full access for team lead"
+    policies:
+    - p, proj:team-backend:admin, applications, *, team-backend/*, allow
+    groups:
+    - backend-leads
+
+  # Cluster resource whitelist (loại tài nguyên được phép tạo ở cluster level)
+  clusterResourceWhitelist:
+  - group: ""
+    kind: Namespace
+
+  # Namespace resource blacklist (tài nguyên bị cấm tạo trong namespace)
+  namespaceResourceBlacklist:
+  - group: ""
+    kind: ResourceQuota

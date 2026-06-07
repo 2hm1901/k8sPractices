@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-spread
+  labels:
+    app: web-spread
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: web-spread
+  template:
+    metadata:
+      labels:
+        app: web-spread
+    spec:
+      affinity:
+        # Pod ANTI-AFFINITY: Phân tán các Pod ra các node khác nhau
+        podAntiAffinity:
+          # REQUIRED: Không được 2 Pod cùng app trên cùng 1 Node
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - web-spread
+            # Topology key: mỗi "hostname" (node) chỉ có 1 pod
+            topologyKey: "kubernetes.io/hostname"
+          # PREFERRED: Ưu tiên phân tán theo availability zone
+          # preferredDuringSchedulingIgnoredDuringExecution:
+          # - weight: 100
+          #   podAffinityTerm:
+          #     labelSelector:
+          #       matchExpressions:
+          #       - key: app
+          #         operator: In
+          #         values:
+          #         - web-spread
+          #     topologyKey: "topology.kubernetes.io/zone"
+      containers:
+      - name: web
+        image: nginx:1.25
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "32Mi"
+          limits:
+            cpu: "100m"
+            memory: "64Mi"

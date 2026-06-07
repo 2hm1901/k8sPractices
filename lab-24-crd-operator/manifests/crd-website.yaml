@@ -1,0 +1,72 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  # Format: <plural>.<group>
+  name: websites.apps.example.com
+spec:
+  # API Group
+  group: apps.example.com
+  # API versions supported
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            required: ["url", "replicas"]
+            properties:
+              url:
+                type: string
+                description: "The URL of the website to host"
+              replicas:
+                type: integer
+                minimum: 1
+                maximum: 10
+                description: "Number of replicas to run"
+              image:
+                type: string
+                description: "Container image to use"
+                default: "nginx:1.25"
+              port:
+                type: integer
+                description: "Port the website serves on"
+                default: 80
+          status:
+            type: object
+            properties:
+              availableReplicas:
+                type: integer
+              phase:
+                type: string
+    # Enable status subresource
+    subresources:
+      status: {}
+    # Additional columns shown in kubectl get websites
+    additionalPrinterColumns:
+    - name: URL
+      type: string
+      jsonPath: .spec.url
+    - name: Replicas
+      type: integer
+      jsonPath: .spec.replicas
+    - name: Ready
+      type: integer
+      jsonPath: .status.availableReplicas
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp
+  scope: Namespaced
+  names:
+    # kubectl get websites
+    plural: websites
+    # kubectl get website
+    singular: website
+    # Kind in YAML
+    kind: Website
+    # Short name: kubectl get ws
+    shortNames:
+    - ws

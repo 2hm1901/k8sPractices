@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger
+  namespace: tracing
+  labels:
+    app: jaeger
+spec:
+  selector:
+    app: jaeger
+  ports:
+  - name: ui
+    port: 16686
+    targetPort: 16686
+  - name: collector-http
+    port: 14268
+    targetPort: 14268
+  - name: otlp-grpc
+    port: 4317
+    targetPort: 4317
+  - name: otlp-http
+    port: 4318
+    targetPort: 4318
+  type: ClusterIP
+---
+# NodePort để access UI từ ngoài cluster (dev/lab only)
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-ui-nodeport
+  namespace: tracing
+spec:
+  selector:
+    app: jaeger
+  ports:
+  - name: ui
+    port: 16686
+    targetPort: 16686
+    nodePort: 30686
+  type: NodePort

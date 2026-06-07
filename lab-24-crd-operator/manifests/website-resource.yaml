@@ -1,0 +1,10 @@
+apiVersion: apps.example.com/v1
+kind: Website
+metadata:
+  name: my-company-website
+  namespace: default
+spec:
+  url: "https://mycompany.com"
+  replicas: 3
+  image: "nginx:1.25"
+  port: 80

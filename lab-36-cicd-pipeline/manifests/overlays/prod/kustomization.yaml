@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+bases:
+- ../../base
+
+namespace: my-app-prod
+
+namePrefix: prod-
+
+# Production: 3 replicas
+replicas:
+- name: my-webapp
+  count: 3
+
+# Production image: specific pinned version (không dùng latest!)
+images:
+- name: nginx
+  newTag: "1.25.3"
+
+commonLabels:
+  environment: prod
+
+patches:
+- patch: |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: my-webapp
+    spec:
+      template:
+        spec:
+          containers:
+          - name: app
+            resources:
+              requests:
+                cpu: "200m"
+                memory: "256Mi"
+              limits:
+                cpu: "1000m"
+                memory: "512Mi"

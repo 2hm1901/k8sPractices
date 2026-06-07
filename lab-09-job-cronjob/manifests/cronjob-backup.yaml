@@ -1,0 +1,50 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-job
+  labels:
+    app: backup-job
+spec:
+  # Chạy mỗi phút (để test, production thường là "0 2 * * *" - 2am daily)
+  schedule: "*/1 * * * *"
+  # Nếu job trước chưa xong thì job mới làm gì?
+  # Allow: chạy thêm (mặc định)
+  # Forbid: bỏ qua
+  # Replace: cancel job cũ, chạy job mới
+  concurrencyPolicy: Forbid
+  # Giữ lại bao nhiêu successful job history
+  successfulJobsHistoryLimit: 3
+  # Giữ lại bao nhiêu failed job history
+  failedJobsHistoryLimit: 1
+  # Nếu bị miss quá nhiều lần (startingDeadlineSeconds), không chạy bù
+  startingDeadlineSeconds: 60
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: backup-job
+        spec:
+          containers:
+          - name: backup
+            image: busybox:1.36
+            command: ["/bin/sh", "-c"]
+            args:
+            - |
+              TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
+              echo "=== Backup Job Starting ==="
+              echo "Timestamp: $TIMESTAMP"
+              echo "Simulating database backup..."
+              sleep 10
+              echo "Backup completed: backup_${TIMESTAMP}.tar.gz"
+              echo "Uploading to storage..."
+              sleep 5
+              echo "=== Backup Job Finished Successfully ==="
+            resources:
+              requests:
+                cpu: "50m"
+                memory: "32Mi"
+              limits:
+                cpu: "200m"
+                memory: "64Mi"
+          restartPolicy: OnFailure

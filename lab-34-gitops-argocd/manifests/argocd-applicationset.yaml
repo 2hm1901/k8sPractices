@@ -1,0 +1,42 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: my-app-all-envs
+  namespace: argocd
+spec:
+  generators:
+  # List generator: tạo Application cho từng environment
+  - list:
+      elements:
+      - env: dev
+        namespace: my-app-dev
+        replicaCount: "1"
+        imageTag: "latest"
+      - env: staging
+        namespace: my-app-staging
+        replicaCount: "2"
+        imageTag: "stable"
+      - env: prod
+        namespace: my-app-prod
+        replicaCount: "3"
+        imageTag: "v1.2.3"
+
+  template:
+    metadata:
+      name: "my-app-{{env}}"
+      namespace: argocd
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/YOUR_USERNAME/k8sPractices.git
+        targetRevision: main
+        path: "lab-36-cicd-pipeline/manifests/overlays/{{env}}"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{namespace}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+        - CreateNamespace=true

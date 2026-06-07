@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pdb-ha-app
+  labels:
+    app: ha-app
+spec:
+  # Luôn đảm bảo ít nhất 2 Pod đang chạy
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: ha-app

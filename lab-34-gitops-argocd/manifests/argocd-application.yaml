@@ -1,0 +1,54 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: my-app
+  namespace: argocd
+  # Finalizer: khi xóa Application, ArgoCD cũng xóa tài nguyên trong cluster
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  # Source: Git repository chứa K8s manifests
+  source:
+    repoURL: https://github.com/YOUR_USERNAME/k8sPractices.git
+    targetRevision: main
+    # Path trong repo chứa manifests
+    path: lab-34-gitops-argocd/app-manifests
+
+    # Hoặc nếu dùng Helm:
+    # helm:
+    #   chart: my-webapp
+    #   version: "1.0.0"
+    #   valueFiles:
+    #   - values-prod.yaml
+
+    # Hoặc nếu dùng Kustomize:
+    # kustomize:
+    #   images:
+    #   - myapp=myregistry/myapp:v1.2.3
+
+  # Destination: cluster và namespace để deploy
+  destination:
+    server: https://kubernetes.default.svc  # in-cluster
+    namespace: my-app-namespace
+
+  # Sync policy: tự động hay manual?
+  syncPolicy:
+    automated:
+      # Tự động prune resources không còn trong Git
+      prune: true
+      # Tự động sync khi cluster state drift khỏi Git
+      selfHeal: true
+      # Cho phép tạo namespace tự động
+      allowEmpty: false
+    syncOptions:
+    - CreateNamespace=true
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

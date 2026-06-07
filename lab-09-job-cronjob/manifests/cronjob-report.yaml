@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: daily-report
+  labels:
+    app: daily-report
+spec:
+  # Chạy 8am mỗi ngày
+  schedule: "0 8 * * *"
+  concurrencyPolicy: Allow
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: report-generator
+            image: busybox:1.36
+            command: ["/bin/sh", "-c"]
+            args:
+            - |
+              echo "Generating daily report for $(date '+%Y-%m-%d')..."
+              echo "Querying database..."
+              sleep 5
+              echo "Report generated and sent to team@example.com"
+          restartPolicy: OnFailure
