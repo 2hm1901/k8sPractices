@@ -187,114 +187,266 @@ kubectl get pods -n dev
 # Output mẫu:
 # NAME                    READY   STATUS      RESTARTS   AGE
 # nginx-pod               1/1     Running     0          2m
-# busybox-onfailure       0/1     Completed   0          1m
+# busybox-onfailure       0/1     CrashLoopBackOff  2    1m
+# busybox-completed       0/1     Completed   0          1m
+# busybox-never-restart   0/1     Error       0          1m
 # debug-pod               1/1     Running     0          30s
 
 # Xem chi tiết tất cả pods
 kubectl describe pods -n dev
 ```
 
-### Step 4: Debugging với kubectl logs
+### Step 4: Debugging workflow - nhìn triệu chứng trước, chọn lệnh sau
+
+Khi pod không chạy đúng, đừng chạy lệnh ngẫu nhiên. Hãy đi theo thứ tự này:
+
+| Câu hỏi cần trả lời | Lệnh nên chạy | Vì sao |
+|---------------------|---------------|--------|
+| Pod đang ở trạng thái gì? | `kubectl get pods -n dev` | Xác định hướng debug: `Pending`, `Running`, `Error`, `CrashLoopBackOff`, `ImagePullBackOff` |
+| Kubernetes đã làm gì với pod? | `kubectl describe pod <pod> -n dev` | Xem scheduling, pull image, probe, restart, exit code và Events |
+| App/container in ra lỗi gì? | `kubectl logs <pod> -n dev` | Xem lỗi từ process bên trong container |
+| Container đã crash và restart chưa? | `kubectl logs <pod> -n dev --previous` | Lấy log của lần chạy trước, vì lần hiện tại có thể vừa restart |
+| Cần kiểm tra bên trong container? | `kubectl exec -it <pod> -n dev -- sh` | Chỉ dùng khi container còn đang Running |
+| Có nhiều pod hoặc lỗi đã trôi mất trong describe? | `kubectl get events -n dev --sort-by='.lastTimestamp'` | Xem timeline sự kiện trong namespace |
+
+> Quy tắc nhớ nhanh: `get` để biết tình trạng, `describe` để biết Kubernetes đang gặp gì, `logs` để biết app nói gì, `exec` để kiểm tra bên trong container.
+
+### Step 5: Debugging với `kubectl describe`
+
+`describe` là lệnh đầu tiên nên chạy khi pod không vào trạng thái mong muốn. Nó trả lời câu hỏi: "Kubernetes có tạo, schedule, pull image, start container và probe pod thành công không?"
 
 ```bash
-# Xem logs của pod nginx
+# Xem trạng thái tổng quan trước
+kubectl get pods -n dev
+
+# Describe pod - thông tin đầy đủ nhất từ Kubernetes
+kubectl describe pod nginx-pod -n dev
+```
+
+Khi đọc output, tập trung vào các phần này:
+
+```text
+Status:       Pod đang Pending/Running/Failed?
+Node:         Pod đã được schedule lên node nào chưa?
+Containers:   Container đang Waiting/Running/Terminated?
+Last State:   Lần chạy trước kết thúc vì lý do gì?
+Restart Count: Container đã restart bao nhiêu lần?
+Conditions:   PodScheduled, Initialized, Ready, ContainersReady có True không?
+Events:       Timeline lỗi từ scheduler, kubelet, image pull, probe, volume
+```
+
+Ví dụ chỉ xem phần Events:
+
+```bash
+kubectl describe pod nginx-pod -n dev | grep -A 20 "Events:"
+```
+
+Cách đọc một số lỗi thường gặp:
+
+| Thấy trong output | Nghĩa là gì | Sửa ở đâu |
+|-------------------|-------------|-----------|
+| `ErrImagePull` hoặc `ImagePullBackOff` | Kubelet không pull được image | Sửa `spec.containers[].image` hoặc image pull secret |
+| `CrashLoopBackOff` | Container start được nhưng process thoát lỗi lặp lại | Xem `logs --previous`, sửa `command`, `args`, env, config hoặc code app |
+| `OOMKilled` | Container dùng quá `resources.limits.memory` | Tối ưu app hoặc tăng `resources.limits.memory` |
+| `FailedScheduling` | Scheduler không tìm được node phù hợp | Giảm `resources.requests`, sửa nodeSelector/taints/PVC |
+| `Readiness probe failed` | App chưa sẵn sàng nhận traffic | Sửa `readinessProbe.path/port/delay` hoặc app endpoint |
+| `Liveness probe failed` | Kubernetes coi app đã hỏng và restart container | Sửa `livenessProbe` hoặc nguyên nhân app bị treo |
+
+### Step 6: Debugging với `kubectl logs`
+
+`logs` dùng để đọc output của process trong container. Lệnh này trả lời câu hỏi: "Ứng dụng bên trong container báo lỗi gì?"
+
+```bash
+# Xem logs hiện tại của nginx
 kubectl logs nginx-pod -n dev
 
-# Follow logs (real-time, như tail -f)
-kubectl logs nginx-pod -n dev -f
-
-# Xem 20 dòng cuối
+# Xem 20 dòng cuối để đỡ bị ngợp khi log dài
 kubectl logs nginx-pod -n dev --tail=20
+
+# Follow logs real-time, hữu ích khi đang gửi request hoặc test probe
+kubectl logs nginx-pod -n dev -f --tail=50
 
 # Xem logs trong 30 phút gần nhất
 kubectl logs nginx-pod -n dev --since=30m
-
-# Xem logs của container cụ thể (pod multi-container)
-kubectl logs <pod-name> -c <container-name> -n dev
-
-# Xem logs của pod đã crash (lần chạy trước)
-kubectl logs <pod-name> -n dev --previous
-
-# Xem logs từ tất cả pods có label cụ thể
-kubectl logs -l app=nginx -n dev --max-log-requests=10
-
-# Combine: follow + tail
-kubectl logs nginx-pod -n dev -f --tail=50
 ```
 
-### Step 5: Debugging với kubectl exec
+Với pod bị crash, lần chạy hiện tại có thể chưa kịp in lỗi. Khi `RESTARTS > 0`, dùng `--previous`:
 
 ```bash
-# Mở interactive shell trong pod
+# Pod demo này cố tình exit 1 nên sẽ restart theo restartPolicy=OnFailure
+kubectl get pod busybox-onfailure -n dev
+
+# Logs của container đang chạy/lần chạy hiện tại
+kubectl logs busybox-onfailure -n dev
+
+# Logs của lần crash trước đó - thường là nơi thấy nguyên nhân thật
+kubectl logs busybox-onfailure -n dev --previous
+```
+
+Nếu pod có nhiều container, phải chỉ rõ container:
+
+```bash
+kubectl logs <pod-name> -c <container-name> -n dev
+```
+
+Nếu muốn lấy log của nhiều pod cùng label:
+
+```bash
+kubectl logs -l app=nginx -n dev --max-log-requests=10
+```
+
+### Step 7: Debugging với `kubectl exec`
+
+`exec` dùng khi container còn `Running` và bạn cần kiểm tra từ bên trong container. Nó không dùng được nếu container đang `Pending`, `ImagePullBackOff`, hoặc crash quá nhanh.
+
+```bash
+# Mở interactive shell trong nginx container
 kubectl exec -it nginx-pod -n dev -- /bin/sh
+```
 
-# Trong shell, thử các lệnh:
-# ls /etc/nginx/
-# cat /etc/nginx/nginx.conf
-# wget -qO- http://localhost/
-# exit
+Trong shell, thử kiểm tra theo thứ tự:
 
-# Chạy lệnh không interactive
-kubectl exec nginx-pod -n dev -- ls /etc/nginx/
-kubectl exec nginx-pod -n dev -- cat /etc/nginx/nginx.conf
-kubectl exec nginx-pod -n dev -- env
+```bash
+# 1. File config có tồn tại không?
+ls /etc/nginx/
+cat /etc/nginx/nginx.conf
 
-# Xem processes trong container
+# 2. Process chính có đang chạy không?
+ps aux
+
+# 3. App có trả lời từ bên trong container không?
+wget -qO- http://localhost/
+
+# 4. Env có đúng như YAML khai báo không?
+env | sort
+
+# Thoát shell
+exit
+```
+
+Có thể chạy trực tiếp từng lệnh nếu không cần vào shell:
+
+```bash
 kubectl exec nginx-pod -n dev -- ps aux
-
-# Kiểm tra network
 kubectl exec nginx-pod -n dev -- wget -qO- http://localhost/
+kubectl exec nginx-pod -n dev -- env
+```
 
-# Copy file từ/vào container
+`kubectl cp` chỉ dùng khi thật sự cần lấy file ra để xem hoặc chép file test vào container:
+
+```bash
 kubectl cp nginx-pod:/etc/nginx/nginx.conf ./nginx.conf -n dev
 kubectl cp ./test-file.txt nginx-pod:/tmp/ -n dev
 ```
 
-### Step 6: Debugging với kubectl describe
+### Step 8: Xem Events trong cluster
 
-```bash
-# Describe pod - thông tin đầy đủ nhất
-kubectl describe pod nginx-pod -n dev
-
-# Chú ý các phần quan trọng trong describe output:
-# - Status: Running/Pending/Failed
-# - IP: Pod IP address
-# - Node: Pod đang chạy trên node nào
-# - Containers: trạng thái từng container
-# - Conditions: PodScheduled, Initialized, Ready, ContainersReady
-# - Volumes: volumes được mount
-# - Events: ← ĐÂY LÀ PHẦN QUAN TRỌNG NHẤT KHI DEBUG
-
-# Xem chỉ phần Events
-kubectl describe pod nginx-pod -n dev | grep -A 20 "Events:"
-
-# Các lỗi thường gặp trong Events:
-# - ErrImagePull / ImagePullBackOff: Không pull được image
-# - OOMKilled: Pod bị kill vì dùng quá Memory limit
-# - CrashLoopBackOff: Container liên tục crash và restart
-# - Pending: Không đủ resources trên node để schedule
-```
-
-### Step 7: Xem Events trong cluster
+Events là timeline các hành động/lỗi mà Kubernetes ghi nhận. Dùng events khi cần nhìn toàn cảnh hoặc khi `describe` của một pod chưa đủ.
 
 ```bash
 # Xem tất cả events trong namespace
 kubectl get events -n dev
 
-# Sort theo thời gian (mới nhất cuối cùng)
+# Sort theo thời gian để đọc như timeline
 kubectl get events -n dev --sort-by='.lastTimestamp'
 
-# Chỉ xem Warning events
+# Chỉ xem Warning events để lọc lỗi quan trọng
 kubectl get events -n dev --field-selector type=Warning
 
 # Xem events của một pod cụ thể
 kubectl get events -n dev --field-selector involvedObject.name=nginx-pod
 
-# Format output
+# Output rộng hơn, có object và source rõ hơn
 kubectl get events -n dev -o wide
 ```
 
-### Step 8: Quan sát Restart Policies
+### Step 9: Mini practice - phá lỗi rồi tự sửa
+
+Mục tiêu của bài này là học cách nối triệu chứng với nguyên nhân và cách sửa manifest.
+
+#### Practice A: Sửa lỗi image sai
+
+Tạo một pod cố tình dùng image không tồn tại:
+
+```bash
+kubectl run broken-image \
+  --image=nginx:not-a-real-tag \
+  --restart=Never \
+  -n dev
+
+kubectl get pod broken-image -n dev
+kubectl describe pod broken-image -n dev | grep -A 20 "Events:"
+```
+
+Kết quả mong đợi: pod rơi vào `ErrImagePull` hoặc `ImagePullBackOff`.
+
+Vì sao chạy các lệnh trên:
+- `get pod` cho biết triệu chứng bên ngoài.
+- `describe ... Events` cho biết kubelet pull image nào và lỗi pull ra sao.
+
+Cách sửa:
+
+```bash
+# Cách nhanh trong practice: xóa pod lỗi rồi tạo lại với tag đúng
+kubectl delete pod broken-image -n dev
+kubectl run broken-image \
+  --image=nginx:1.25-alpine \
+  --restart=Never \
+  -n dev
+
+kubectl get pod broken-image -n dev
+```
+
+Nếu lỗi nằm trong YAML, sửa field này:
+
+```yaml
+spec:
+  containers:
+  - name: nginx
+    image: nginx:1.25-alpine
+```
+
+#### Practice B: Sửa lỗi container crash
+
+Pod `busybox-onfailure` trong `manifests/pod-busybox-restart.yaml` cố tình `exit 1`, nên nó restart liên tục.
+
+```bash
+kubectl get pod busybox-onfailure -n dev
+kubectl describe pod busybox-onfailure -n dev
+kubectl logs busybox-onfailure -n dev --previous
+```
+
+Vì sao chạy các lệnh trên:
+- `get pod` để thấy `RESTARTS` tăng.
+- `describe` để đọc `Last State`, `Exit Code`, `Restart Count`.
+- `logs --previous` để đọc log của lần container vừa chết.
+
+Cách sửa trong file `manifests/pod-busybox-restart.yaml`:
+
+```yaml
+command:
+- sh
+- -c
+- |
+  echo "=== Task Starting ==="
+  echo "Current time: $(date)"
+  echo "Doing some work..."
+  sleep 5
+  echo "Task completed successfully! (exit code 0)"
+  exit 0
+```
+
+Sau khi sửa YAML, apply lại để kiểm tra pod không còn restart:
+
+```bash
+kubectl delete pod busybox-onfailure -n dev
+kubectl apply -f manifests/pod-busybox-restart.yaml -n dev
+kubectl get pods -n dev -w
+```
+
+> Lưu ý: `busybox-onfailure` được thiết kế để lỗi nhằm demo `restartPolicy=OnFailure`. Nếu muốn làm lại phần quan sát restart ở Step 10, đổi dòng cuối về `exit 1` rồi apply lại.
+
+### Step 10: Quan sát Restart Policies
 
 ```bash
 # Policy: OnFailure - restart khi exit code != 0
@@ -325,7 +477,7 @@ kubectl run fail-never \
 kubectl get pods fail-never -n dev
 ```
 
-### Step 9: Port-forward để test pod
+### Step 11: Port-forward để test pod
 
 ```bash
 # Port forward local port 8080 -> pod port 80
@@ -387,9 +539,12 @@ kubectl delete -f manifests/pod-debug.yaml -n dev --ignore-not-found
 
 # Xóa pods tạo bằng imperative commands
 kubectl delete pod nginx-quick --ignore-not-found
-kubectl delete pod busybox-test -n dev --ignore-not-found
+kubectl delete pod busybox-test --ignore-not-found
+kubectl delete pod busybox-shell --ignore-not-found
+kubectl delete pod broken-image -n dev --ignore-not-found
 kubectl delete pod never-restart -n dev --ignore-not-found
 kubectl delete pod fail-never -n dev --ignore-not-found
+kubectl delete pod debug-crash -n dev --ignore-not-found
 
 # Verify
 kubectl get pods -n dev
@@ -408,8 +563,13 @@ kubectl get pods -n dev
 kubectl logs <pod> --previous   # Xem logs lần crash TRƯỚC
 kubectl describe pod <pod>       # Xem events: OOMKilled? Exit code?
 
-# Tăng time để debug (hack: override command)
-kubectl run debug-crash --image=broken-image --command -- sleep infinity
+# Nếu app crash quá nhanh, tạo pod debug bằng cùng image nhưng override command
+# Lưu ý: cách này chỉ giúp khi image pull được; nếu image sai thì phải sửa image trước
+kubectl run debug-crash \
+  --image=<same-image-as-crashing-pod> \
+  --restart=Never \
+  -n dev \
+  --command -- sleep infinity
 ```
 
 ### ⚠️ Gotcha 2: ImagePullBackOff
