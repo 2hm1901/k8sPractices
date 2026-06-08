@@ -344,9 +344,9 @@ kubectl delete pod nginx-staging -n staging
 kubectl delete pod nginx-prod -n prod
 
 # Xóa namespace (sẽ kéo theo tất cả resources còn lại)
-kubectl delete ns development
+kubectl delete ns dev
 kubectl delete ns staging
-kubectl delete ns production
+kubectl delete ns prod
 
 # Xóa từ file manifest
 kubectl delete -f manifests/namespace-dev.yaml
